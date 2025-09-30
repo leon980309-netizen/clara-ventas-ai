@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, send_from_directory
 import os
-import threading
 
 app = Flask(__name__, static_folder='.')
 
@@ -28,7 +27,7 @@ def chat():
     
     if engine is None:
         return jsonify({
-            "content": "⚠️ El sistema se está inicializando. Por favor, espera unos segundos y vuelve a intentar."
+            "content": "❌ Error crítico: No se pudieron cargar los datos. Contacta al administrador."
         })
     
     data = request.get_json()
@@ -61,34 +60,22 @@ def chat():
         return jsonify({"content": respuesta})
     except Exception as e:
         print(f"Error al responder: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud. Por favor, inténtalo de nuevo."})
+        return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud."})
 
-def init_engine():
-    """Inicializa el motor de análisis en segundo plano."""
-    global engine
-    print("⏳ Cargando datos de Excel...")
-    try:
-        import os
-        # Verificar que los archivos existen
-        for ruta in RUTAS_EXCEL:
-            if not os.path.exists(ruta):
-                print(f"❌ Archivo no encontrado: {ruta}")
-                engine = None
-                return
-        
-        # Intentar leer los archivos
-        from data_loader import cargar_datos
-        from analysis_engine import AnalysisEngine
-        df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
-        engine = AnalysisEngine(df_consolidado, df_metas)
-        print("✅ Datos cargados correctamente.")
-    except Exception as e:
-        print(f"❌ Error al cargar datos: {e}")
-        import traceback
-        traceback.print_exc()
-        engine = None
+# Carga SÍNCRONA de datos (obligatorio para Render)
+print("⏳ Cargando datos de Excel...")
+try:
+    from data_loader import cargar_datos
+    from analysis_engine import AnalysisEngine
+    df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
+    engine = AnalysisEngine(df_consolidado, df_metas)
+    print("✅ Datos cargados correctamente.")
+except Exception as e:
+    print(f"❌ ERROR FATAL al cargar datos: {e}")
+    import traceback
+    traceback.print_exc()
+    engine = None
 
-# Iniciar la carga en segundo plano al importar el módulo
-threading.Thread(target=init_engine, daemon=True).start()
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
