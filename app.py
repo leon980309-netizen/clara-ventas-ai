@@ -63,8 +63,8 @@ def chat():
         print(f"Error al responder: {e}")
         return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud. Por favor, inténtalo de nuevo."})
 
+# Inicialización en segundo plano
 def init_engine():
-    """Inicializa el motor de análisis en segundo plano."""
     global engine
     print("⏳ Cargando datos de Excel...")
     try:
@@ -75,15 +75,9 @@ def init_engine():
         print("✅ Datos cargados correctamente.")
     except Exception as e:
         print(f"❌ Error al cargar los datos: {e}")
+        import traceback
+        traceback.print_exc()
         engine = None
 
-if __name__ == '__main__':
-    # Iniciar la carga de datos en segundo plano
-    threading.Thread(target=init_engine, daemon=True).start()
-    
-    # Obtener el puerto de la variable de entorno (Render usa 10000 por defecto)
-    port = int(os.environ.get("PORT", 10000))
-    
-    # Iniciar el servidor Flask
-    print(f"🚀 Servidor iniciado en http://0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+# Iniciar la carga en segundo plano al importar el módulo
+threading.Thread(target=init_engine, daemon=True).start()
