@@ -1,0 +1,63 @@
+{
+  "users": {
+    "admin": {
+      "password": "admin123",
+      "role": "admin"
+    },
+    "ABAI": {
+      "password": "1278",
+      "role": "aliado",
+      "base": "ABAI"
+    },
+    "ALMACONTACT": {
+      "password": "1534",
+      "role": "aliado",
+      "base": "ALMACONTACT"
+    },
+    "AQI": {
+      "password": "1987",
+      "role": "aliado",
+      "base": "AQI"
+    },
+    "ATENTO": {
+      "password": "1025",
+      "role": "aliado",
+      "base": "ATENTO"
+    },
+    "BRM": {
+      "password": "1763",
+      "role": "aliado",
+      "base": "BRM"
+    },
+    "CLARO": {
+      "password": "1198",
+      "role": "admin",
+      "base": "CLARO"
+    },
+    "COS": {
+      "password": "1654",
+      "role": "aliado",
+      "base": "COS"
+    },
+    "IBR LATAM": {
+      "password": "1442",
+      "role": "aliado",
+      "base": "IBR LATAM"
+    },
+    "MILLENIUM": {
+      "password": "1379",
+      "role": "aliado",
+      "base": "MILLENIUM"
+    },
+    "NEXA": {
+      "password": "1826",
+      "role": "aliado",
+      "base": "NEXA"
+    },
+    "LATCOM": {
+      "password": "1911",
+      "role": "aliado",
+      "base": "LATCOM"
+    }
+  }
+}
