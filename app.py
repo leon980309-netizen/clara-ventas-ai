@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from security import Security
 from data_loader import cargar_datos
 from analysis_engine import AnalysisEngine
+import os
 
 app = Flask(__name__, static_folder='.')
 
@@ -54,4 +55,6 @@ def chat():
 
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    # Render asigna el puerto vía variable de entorno PORT
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
