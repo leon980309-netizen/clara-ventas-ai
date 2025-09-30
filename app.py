@@ -55,6 +55,6 @@ def chat():
 
 
 if __name__ == '__main__':
-    # Render asigna el puerto vía variable de entorno PORT
-    port = int(os.environ.get("PORT", 10000))
+    # Usa el puerto que Render asigna, por defecto 5000 para pruebas locales
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
