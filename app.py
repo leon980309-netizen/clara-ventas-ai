@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 import os
+import threading
 
 app = Flask(__name__, static_folder='.')
 
@@ -7,7 +8,7 @@ app = Flask(__name__, static_folder='.')
 engine = None
 sessions = {}
 
-# Rutas de Excel
+# Rutas de tus archivos Excel
 RUTAS_EXCEL = [
     "Base Consolidada 2024.xlsx",
     "Base Consolidada 2025.xlsx"
@@ -26,31 +27,63 @@ def chat():
     global engine, sessions
     
     if engine is None:
-        return jsonify({"content": "⚠️ Inicializando sistema. Por favor, espera 10 segundos y vuelve a intentar."})
+        return jsonify({
+            "content": "⚠️ El sistema se está inicializando. Por favor, espera unos segundos y vuelve a intentar."
+        })
     
-    # ... resto de tu lógica de chat ...
+    data = request.get_json()
+    message = data.get('message', '').strip()
+
+    user_ip = request.remote_addr
+    user_info = sessions.get(user_ip)
+
+    if not user_info:
+        parts = message.split(maxsplit=1)
+        if len(parts) == 2:
+            username, password = parts[0], parts[1]
+            try:
+                from security import Security
+                security = Security()
+                user = security.login(username, password)
+                if user:
+                    sessions[user_ip] = user
+                    return jsonify({
+                        "content": f"✅ ¡Hola {username}! Ya puedes hacerme preguntas sobre desempeño, cumplimiento o comparaciones."
+                    })
+            except Exception as e:
+                print(f"Error en autenticación: {e}")
+        return jsonify({
+            "content": "🔐 Por favor, ingresa tu usuario y contraseña (ej: CLARO 1198)"
+        })
+
+    try:
+        respuesta = engine.responder(message, user_info)
+        return jsonify({"content": respuesta})
+    except Exception as e:
+        print(f"Error al responder: {e}")
+        return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud. Por favor, inténtalo de nuevo."})
 
 def init_engine():
     """Inicializa el motor de análisis en segundo plano."""
     global engine
     print("⏳ Cargando datos de Excel...")
     try:
-        from security import Security
         from data_loader import cargar_datos
         from analysis_engine import AnalysisEngine
         df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
         engine = AnalysisEngine(df_consolidado, df_metas)
         print("✅ Datos cargados correctamente.")
     except Exception as e:
-        print(f"❌ Error al cargar datos: {e}")
+        print(f"❌ Error al cargar los datos: {e}")
+        engine = None
 
 if __name__ == '__main__':
-    # Inicia el servidor INMEDIATAMENTE
-    port = int(os.environ.get("PORT", 5000))
-    
-    # Inicia la carga de datos en segundo plano
-    import threading
+    # Iniciar la carga de datos en segundo plano
     threading.Thread(target=init_engine, daemon=True).start()
     
-    # Inicia el servidor Flask
+    # Obtener el puerto de la variable de entorno (Render usa 10000 por defecto)
+    port = int(os.environ.get("PORT", 10000))
+    
+    # Iniciar el servidor Flask
+    print(f"🚀 Servidor iniciado en http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
