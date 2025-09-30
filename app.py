@@ -53,7 +53,7 @@ def chat():
             except Exception as e:
                 print(f"Error en autenticación: {e}")
         return jsonify({
-            "content": "🔐 Por favor, ingresa tu usuario y contraseña"
+            "content": "🔐 Por favor, ingresa tu usuario y contraseña (ej: CLARO 1198)"
         })
 
     try:
@@ -61,25 +61,26 @@ def chat():
         return jsonify({"content": respuesta})
     except Exception as e:
         print(f"Error al responder: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud. Por favor, inténtalo de nuevo."})
 
-# Inicialización en segundo plano
 def init_engine():
     """Inicializa el motor de análisis en segundo plano."""
     global engine
     print("⏳ Cargando datos de Excel...")
     try:
-        from data_loader import cargar_datos
-        from analysis_engine import AnalysisEngine
-        
-        # Verificar que los archivos existen
         import os
+        # Verificar que los archivos existen
         for ruta in RUTAS_EXCEL:
             if not os.path.exists(ruta):
                 print(f"❌ Archivo no encontrado: {ruta}")
                 engine = None
                 return
         
+        # Intentar leer los archivos
+        from data_loader import cargar_datos
+        from analysis_engine import AnalysisEngine
         df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
         engine = AnalysisEngine(df_consolidado, df_metas)
         print("✅ Datos cargados correctamente.")
@@ -88,3 +89,6 @@ def init_engine():
         import traceback
         traceback.print_exc()
         engine = None
+
+# Iniciar la carga en segundo plano al importar el módulo
+threading.Thread(target=init_engine, daemon=True).start()
