@@ -57,31 +57,38 @@ class AnalysisEngine:
         return None
 
     def detectar_periodo(self, pregunta):
-        pregunta_lower = pregunta.lower().strip()
+        """Mejorada para detectar año y mes específicos"""
+        pregunta_lower = pregunta.lower()
         
-        for mes_nombre, mes_num in self.meses.items():
+        # Detectar año específico
+        año = None
+        for year in ['2024', '2025']:
+            if year in pregunta:
+                año = year
+                break
+        
+        # Detectar mes
+        mes_num = None
+        for mes_nombre, num in self.meses.items():
             if mes_nombre in pregunta_lower:
-                # Buscar año explícito: "septiembre 2025" o "septiembre de 2025"
-                patron = rf"{mes_nombre}\s*(?:de\s*)?(\d{{4}})"
-                match = re.search(patron, pregunta_lower)
-                if match:
-                    año = match.group(1)
-                    # Filtrar por año y mes (admite formatos como "2025-09", "09/2025", "Septiembre 2025")
-                    def filtro(df):
-                        return df[
-                            df['mes'].astype(str).str.contains(f"{año}.*{mes_num}", case=False, na=False) |
-                            df['mes'].astype(str).str.contains(f"{mes_num}.*{año}", case=False, na=False)
-                        ]
-                    return filtro
-                else:
-                    # Si no hay año, asumir 2025 (el año más reciente en tus datos)
-                    def filtro(df):
-                        return df[
-                            df['mes'].astype(str).str.contains(r"2025.*" + mes_num, case=False, na=False) |
-                            df['mes'].astype(str).str.contains(mes_num + r".*2025", case=False, na=False)
-                        ]
-                    return filtro
-        return None
+                mes_num = num
+                break
+        
+        def filtro(df):
+            if año and mes_num:
+                # Buscar patrones como "2024-09", "09/2024", "Septiembre 2024"
+                return df[
+                    df['mes'].astype(str).str.contains(f"{año}.*{mes_num}", case=False, na=False) |
+                    df['mes'].astype(str).str.contains(f"{mes_num}.*{año}", case=False, na=False)
+                ]
+            elif año:
+                return df[df['mes'].astype(str).str.contains(año, case=False, na=False)]
+            elif mes_num:
+                # Asumir año actual (2025) si no se especifica
+                return df[df['mes'].astype(str).str.contains(f"2025.*{mes_num}", case=False, na=False)]
+            return df
+        
+        return filtro
 
     def responder(self, pregunta, user_info):
         intent = self.detect_intent(pregunta)
@@ -109,18 +116,14 @@ class AnalysisEngine:
         if filtro_periodo:
             df = filtro_periodo(df)
         
+        if df.empty:
+            return "❌ No se encontraron datos para el periodo o aliado especificado."
+        
         total_altas = df['altas'].sum()
         total_ingresos = df['ingresos'].sum()
         
         # Construir mensaje de periodo
-        periodo_msg = ""
-        if 'septiembre 2025' in pregunta.lower() or ('septiembre' in pregunta.lower() and '2025' in pregunta.lower()):
-            periodo_msg = " para septiembre 2025"
-        elif 'septiembre 2024' in pregunta.lower() or ('septiembre' in pregunta.lower() and '2024' in pregunta.lower()):
-            periodo_msg = " para septiembre 2024"
-        elif 'septiembre' in pregunta.lower():
-            periodo_msg = " para septiembre 2025"
-        # Puedes agregar más meses si lo deseas
+        periodo_msg = self._construir_mensaje_periodo(pregunta)
 
         if aliado:
             return f"📊 Desempeño del aliado **{aliado}**{periodo_msg}:\n- Altas totales: {total_altas:,.0f}\n- Ingresos totales: S/ {total_ingresos:,.2f}"
@@ -135,36 +138,36 @@ class AnalysisEngine:
             df = filtro_periodo(df)
             df_metas = filtro_periodo(df_metas)
         
+        if df.empty or df_metas.empty:
+            return "❌ No se encontraron datos o metas para el periodo especificado."
+        
         altas_logradas = df['altas'].sum()
         ingresos_logrados = df['ingresos'].sum()
         meta_altas = df_metas['altas'].sum() if 'altas' in df_metas.columns else 0
         meta_ingresos = df_metas['ingresos'].sum() if 'ingresos' in df_metas.columns else 0
         
+        if meta_altas == 0 or meta_ingresos == 0:
+            return "❌ No se encontraron metas definidas para el periodo especificado."
+        
         cumplimiento_altas = (altas_logradas / meta_altas * 100) if meta_altas > 0 else 0
         cumplimiento_ingresos = (ingresos_logrados / meta_ingresos * 100) if meta_ingresos > 0 else 0
         
-        estado_altas = "🟢 Cerca de la meta" if cumplimiento_altas >= 80 else "🔴 Lejos de la meta"
-        estado_ingresos = "🟢 Cerca de la meta" if cumplimiento_ingresos >= 80 else "🔴 Lejos de la meta"
+        estado_altas = "🟢 Cerca de la meta" if cumplimiento_altas >= 80 else "🟡 A mitad de camino" if cumplimiento_altas >= 50 else "🔴 Lejos de la meta"
+        estado_ingresos = "🟢 Cerca de la meta" if cumplimiento_ingresos >= 80 else "🟡 A mitad de camino" if cumplimiento_ingresos >= 50 else "🔴 Lejos de la meta"
         
-        periodo_msg = ""
-        if 'septiembre 2025' in pregunta.lower() or ('septiembre' in pregunta.lower() and '2025' in pregunta.lower()):
-            periodo_msg = " para septiembre 2025"
-        elif 'septiembre 2024' in pregunta.lower() or ('septiembre' in pregunta.lower() and '2024' in pregunta.lower()):
-            periodo_msg = " para septiembre 2024"
-        elif 'septiembre' in pregunta.lower():
-            periodo_msg = " para septiembre 2025"
+        periodo_msg = self._construir_mensaje_periodo(pregunta)
 
         if aliado:
             return (
                 f"🎯 Predicción de cumplimiento para **{aliado}**{periodo_msg}:\n"
-                f"- Altas: {cumplimiento_altas:.1f}% → {estado_altas}\n"
-                f"- Ingresos: {cumplimiento_ingresos:.1f}% → {estado_ingresos}"
+                f"- Altas: {cumplimiento_altas:.1f}% ({altas_logradas:,.0f} / {meta_altas:,.0f}) → {estado_altas}\n"
+                f"- Ingresos: {cumplimiento_ingresos:.1f}% (S/ {ingresos_logrados:,.2f} / S/ {meta_ingresos:,.2f}) → {estado_ingresos}"
             )
         else:
             return (
                 f"🎯 Predicción de cumplimiento global{periodo_msg}:\n"
-                f"- Altas: {cumplimiento_altas:.1f}% → {estado_altas}\n"
-                f"- Ingresos: {cumplimiento_ingresos:.1f}% → {estado_ingresos}"
+                f"- Altas: {cumplimiento_altas:.1f}% ({altas_logradas:,.0f} / {meta_altas:,.0f}) → {estado_altas}\n"
+                f"- Ingresos: {cumplimiento_ingresos:.1f}% (S/ {ingresos_logrados:,.2f} / S/ {meta_ingresos:,.2f}) → {estado_ingresos}"
             )
 
     def comparar_periodos(self, aliado, pregunta):
@@ -172,21 +175,54 @@ class AnalysisEngine:
         df_2024 = df[df['mes'].astype(str).str.contains('2024', case=False, na=False)]
         df_2025 = df[df['mes'].astype(str).str.contains('2025', case=False, na=False)]
         
+        if df_2024.empty or df_2025.empty:
+            return "❌ No se encontraron datos suficientes para comparar periodos."
+        
         altas_2024 = df_2024['altas'].sum()
         altas_2025 = df_2025['altas'].sum()
-        mejor = "2025" if altas_2025 > altas_2024 else "2024"
+        ingresos_2024 = df_2024['ingresos'].sum()
+        ingresos_2025 = df_2025['ingresos'].sum()
+        
+        variacion_altas = ((altas_2025 - altas_2024) / altas_2024 * 100) if altas_2024 > 0 else 0
+        variacion_ingresos = ((ingresos_2025 - ingresos_2024) / ingresos_2024 * 100) if ingresos_2024 > 0 else 0
+        
+        mejor_altas = "2025" if altas_2025 > altas_2024 else "2024"
+        mejor_ingresos = "2025" if ingresos_2025 > ingresos_2024 else "2024"
         
         if aliado:
             return (
                 f"🆚 Comparación 2024 vs 2025 para **{aliado}**:\n"
                 f"- Altas 2024: {altas_2024:,.0f}\n"
-                f"- Altas 2025: {altas_2025:,.0f}\n"
-                f"→ Mejor desempeño en: {mejor}"
+                f"- Altas 2025: {altas_2025:,.0f} ({variacion_altas:+.1f}%)\n"
+                f"- Ingresos 2024: S/ {ingresos_2024:,.2f}\n"
+                f"- Ingresos 2025: S/ {ingresos_2025:,.2f} ({variacion_ingresos:+.1f}%)\n"
+                f"→ Mejor en altas: {mejor_altas}\n"
+                f"→ Mejor en ingresos: {mejor_ingresos}"
             )
         else:
             return (
                 f"🆚 Comparación global 2024 vs 2025:\n"
                 f"- Altas 2024: {altas_2024:,.0f}\n"
-                f"- Altas 2025: {altas_2025:,.0f}\n"
-                f"→ Mejor desempeño en: {mejor}"
+                f"- Altas 2025: {altas_2025:,.0f} ({variacion_altas:+.1f}%)\n"
+                f"- Ingresos 2024: S/ {ingresos_2024:,.2f}\n"
+                f"- Ingresos 2025: S/ {ingresos_2025:,.2f} ({variacion_ingresos:+.1f}%)\n"
+                f"→ Mejor en altas: {mejor_altas}\n"
+                f"→ Mejor en ingresos: {mejor_ingresos}"
             )
+
+    def _construir_mensaje_periodo(self, pregunta):
+        """Construye mensaje descriptivo del periodo basado en la pregunta"""
+        pregunta_lower = pregunta.lower()
+        
+        for mes_nombre in self.meses.keys():
+            if mes_nombre in pregunta_lower:
+                for year in ['2024', '2025']:
+                    if year in pregunta:
+                        return f" para {mes_nombre.capitalize()} {year}"
+                return f" para {mes_nombre.capitalize()} 2025"  # Año por defecto
+        
+        for year in ['2024', '2025']:
+            if year in pregunta:
+                return f" para el año {year}"
+                
+        return ""
