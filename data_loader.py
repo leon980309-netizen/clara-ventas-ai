@@ -3,136 +3,75 @@ from pathlib import Path
 import unicodedata
 
 def normalize_column_name(name):
-    """
-    Normaliza nombres de columnas: quita acentos, espacios, y convierte a minúsculas con guiones bajos.
-    Ej: "CAMPAÑA FINAL" → "campana_final"
-    """
     if not isinstance(name, str):
         return name
-    # Quitar acentos
     name = unicodedata.normalize('NFKD', name).encode('ASCII', 'ignore').decode('utf-8')
-    # Reemplazar espacios por guiones bajos y convertir a minúsculas
     return name.strip().lower().replace(' ', '_')
 
 def cargar_datos():
     """
-    Carga y combina datos de los 4 archivos CSV:
-    - Consolidado2024.csv
-    - Consolidado2025.csv
-    - MetasConsolidado2024.csv
-    - MetasConsolidado2025.csv
-    
-    Returns:
-        tuple: (df_consolidado, df_metas) - DataFrames combinados
+    VERSIÓN OPTIMIZADA - Solo 2025 para máxima estabilidad en Render
     """
-    # Rutas de los archivos CSV
-    rutas_consolidado = [
-        "Consolidado2024.csv",
-        "Consolidado2025.csv"
-    ]
-    rutas_metas = [
-        "MetasConsolidado2024.csv",
-        "MetasConsolidado2025.csv"
-    ]
-
-    consolidados = []
-    metas_list = []
-
-    print("📁 Iniciando carga de archivos CSV...")
-
-    # Cargar archivos de consolidado
-    for ruta in rutas_consolidado:
-        if Path(ruta).exists():
-            print(f"📂 Cargando: {ruta}")
-            try:
-                df = pd.read_csv(
-                    ruta, 
-                    dtype={'altas': 'float32', 'ingresos': 'float32'}, 
-                    low_memory=False,
-                    encoding='utf-8'
-                )
-                df.columns = [normalize_column_name(c) for c in df.columns]
-                
-                # Validar columnas críticas
-                if 'campana_final' in df.columns:
-                    df['campana_final'] = df['campana_final'].astype(str).str.strip().str.upper()
-                else:
-                    print(f"⚠️ Advertencia: 'campana_final' no encontrada en {ruta}")
-                
-                # Verificar columnas numéricas
-                if 'altas' not in df.columns:
-                    print(f"⚠️ Advertencia: 'altas' no encontrada en {ruta}")
-                if 'ingresos' not in df.columns:
-                    print(f"⚠️ Advertencia: 'ingresos' no encontrada en {ruta}")
-                
-                consolidados.append(df)
-                print(f"   ✅ {ruta} cargado - {len(df)} filas")
-                
-            except Exception as e:
-                print(f"❌ Error cargando {ruta}: {e}")
-        else:
-            print(f"❌ Archivo no encontrado: {ruta}")
-
-    # Cargar archivos de metas
-    for ruta in rutas_metas:
-        if Path(ruta).exists():
-            print(f"📂 Cargando: {ruta}")
-            try:
-                df = pd.read_csv(
-                    ruta, 
-                    dtype={'altas': 'float32', 'ingresos': 'float32'}, 
-                    low_memory=False,
-                    encoding='utf-8'
-                )
-                df.columns = [normalize_column_name(c) for c in df.columns]
-                
-                if 'campana_final' in df.columns:
-                    df['campana_final'] = df['campana_final'].astype(str).str.strip().str.upper()
-                else:
-                    print(f"⚠️ Advertencia: 'campana_final' no encontrada en {ruta}")
-                
-                metas_list.append(df)
-                print(f"   ✅ {ruta} cargado - {len(df)} filas")
-                
-            except Exception as e:
-                print(f"❌ Error cargando {ruta}: {e}")
-        else:
-            print(f"❌ Archivo no encontrado: {ruta}")
-
-    # Combinar DataFrames
-    df_consolidado = pd.concat(consolidados, ignore_index=True) if consolidados else pd.DataFrame()
-    df_metas = pd.concat(metas_list, ignore_index=True) if metas_list else pd.DataFrame()
-
-    # VALIDACIÓN CRÍTICA - Verificar que se cargaron datos
-    if df_consolidado.empty:
-        raise Exception("❌ No se pudieron cargar los datos de consolidado. Verifica que los archivos CSV existan.")
-    if df_metas.empty:
-        raise Exception("❌ No se pudieron cargar los datos de metas. Verifica que los archivos CSV existan.")
-
-    # Informe final de carga
-    print(f"✅ CARGA COMPLETADA:")
-    print(f"   - Consolidado: {len(df_consolidado)} registros totales")
-    print(f"   - Metas: {len(df_metas)} registros totales")
+    print("🚀 INICIANDO CARGA OPTIMIZADA (solo 2025)...")
     
-    # Mostrar columnas disponibles para debugging
-    print(f"   - Columnas en consolidado: {list(df_consolidado.columns)}")
-    print(f"   - Columnas en metas: {list(df_metas.columns)}")
+    try:
+        # SOLO columnas esenciales para ahorrar memoria
+        columnas_esenciales = ['campana_final', 'altas', 'ingresos', 'mes']
+        
+        consolidados = []
+        metas_list = []
 
-    return df_consolidado, df_metas
+        # 📊 CARGAR SOLO 2025 - CONSOLIDADO
+        if Path("Consolidado2025.csv").exists():
+            print("📂 Cargando Consolidado2025.csv...")
+            df_2025 = pd.read_csv(
+                "Consolidado2025.csv",
+                usecols=columnas_esenciales,
+                dtype={
+                    'altas': 'float32', 
+                    'ingresos': 'float32',
+                    'campana_final': 'category'  # ✅ OPTIMIZA MEMORIA
+                },
+                low_memory=True
+            )
+            df_2025.columns = [normalize_column_name(c) for c in df_2025.columns]
+            consolidados.append(df_2025)
+            print(f"✅ Consolidado2025: {len(df_2025)} filas cargadas")
 
-# Función auxiliar para debugging
-def mostrar_estadisticas(df_consolidado, df_metas):
-    """Muestra estadísticas básicas de los datos cargados"""
-    print("\n📊 ESTADÍSTICAS DE DATOS CARGADOS:")
-    print(f"Consolidado:")
-    print(f"  - Total registros: {len(df_consolidado)}")
-    print(f"  - Columnas: {list(df_consolidado.columns)}")
-    if not df_consolidado.empty:
-        print(f"  - Rango de fechas: {df_consolidado['mes'].min()} a {df_consolidado['mes'].max()}")
-        print(f"  - Aliados únicos: {df_consolidado['campana_final'].nunique()}")
-    
-    print(f"Metas:")
-    print(f"  - Total registros: {len(df_metas)}")
-    print(f"  - Columnas: {list(df_metas.columns)}")
-    if not df_metas.empty:
-        print(f"  - Rango de fechas: {df_metas['mes'].min()} a {df_metas['mes'].max()}")
+        # 🎯 CARGAR SOLO 2025 - METAS
+        if Path("MetasConsolidado2025.csv").exists():
+            print("📂 Cargando MetasConsolidado2025.csv...")
+            df_metas_2025 = pd.read_csv(
+                "MetasConsolidado2025.csv",
+                usecols=columnas_esenciales,
+                dtype={
+                    'altas': 'float32',
+                    'ingresos': 'float32', 
+                    'campana_final': 'category'
+                },
+                low_memory=True
+            )
+            df_metas_2025.columns = [normalize_column_name(c) for c in df_metas_2025.columns]
+            metas_list.append(df_metas_2025)
+            print(f"✅ Metas2025: {len(df_metas_2025)} filas cargadas")
+
+        # Combinar datos (en este caso solo habrá uno de cada)
+        df_consolidado = pd.concat(consolidados, ignore_index=True) if consolidados else pd.DataFrame()
+        df_metas = pd.concat(metas_list, ignore_index=True) if metas_list else pd.DataFrame()
+
+        # 📈 ESTADÍSTICAS FINALES
+        print(f"\n🎉 CARGA 2025 COMPLETADA:")
+        print(f"   - Consolidado: {len(df_consolidado)} registros")
+        print(f"   - Metas: {len(df_metas)} registros")
+        
+        if not df_consolidado.empty:
+            print(f"   - Aliados únicos: {df_consolidado['campana_final'].nunique()}")
+            print(f"   - Total altas: {df_consolidado['altas'].sum():,.0f}")
+            print(f"   - Total ingresos: S/ {df_consolidado['ingresos'].sum():,.2f}")
+
+        return df_consolidado, df_metas
+
+    except Exception as e:
+        print(f"❌ ERROR en carga: {e}")
+        # Retornar DataFrames vacíos para que la app no crashee
+        return pd.DataFrame(), pd.DataFrame()
