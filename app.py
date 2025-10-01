@@ -1,17 +1,34 @@
 from flask import Flask, request, jsonify, send_from_directory
-import os
 
 app = Flask(__name__, static_folder='.')
 
-# Variables globales
+# Variables globales (se inicializarán en el primer request)
 engine = None
 sessions = {}
 
-# Rutas de tus archivos Excel
+# Rutas de Excel
 RUTAS_EXCEL = [
     "Base Consolidada 2024.xlsx",
     "Base Consolidada 2025.xlsx"
 ]
+
+def init_engine():
+    """Inicializa el motor de análisis (solo una vez)."""
+    global engine
+    if engine is not None:
+        return
+    
+    print("⏳ Cargando datos de Excel...")
+    try:
+        from data_loader import cargar_datos
+        from analysis_engine import AnalysisEngine
+        df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
+        engine = AnalysisEngine(df_consolidado, df_metas)
+        print("✅ Datos cargados correctamente.")
+    except Exception as e:
+        print(f"❌ Error al cargar datos: {e}")
+        import traceback
+        traceback.print_exc()
 
 @app.route('/')
 def serve_index():
@@ -25,10 +42,13 @@ def serve_static(path):
 def chat():
     global engine, sessions
     
+    # Inicializar el motor en el primer request
     if engine is None:
-        return jsonify({
-            "content": "❌ Error crítico: No se pudieron cargar los datos. Contacta al administrador."
-        })
+        init_engine()
+        if engine is None:
+            return jsonify({
+                "content": "❌ Error crítico: No se pudieron cargar los datos. Contacta al administrador."
+            })
     
     data = request.get_json()
     message = data.get('message', '').strip()
@@ -61,17 +81,3 @@ def chat():
     except Exception as e:
         print(f"Error al responder: {e}")
         return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud."})
-
-# Carga SÍNCRONA de datos (obligatorio para Render)
-print("⏳ Cargando datos de Excel...")
-try:
-    from data_loader import cargar_datos
-    from analysis_engine import AnalysisEngine
-    df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
-    engine = AnalysisEngine(df_consolidado, df_metas)
-    print("✅ Datos cargados correctamente.")
-except Exception as e:
-    print(f"❌ ERROR FATAL al cargar datos: {e}")
-    import traceback
-    traceback.print_exc()
-    engine = None
