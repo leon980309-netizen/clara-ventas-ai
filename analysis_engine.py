@@ -10,10 +10,10 @@ class AnalysisEngine:
         self.model = SentenceTransformer('all-MiniLM-L6-v2')
 
         self.intents = {
-            'desempeño': ['desempeño', 'rendimiento', 'eficiencia', 'cómo le fue', 'resultado', 'desempeno'],
-            'predicción': ['predicción', 'cumplirá', 'va a cumplir', 'cerca de la meta', 'lejos de la meta', 'pronóstico', 'proyección'],
-            'comparación': ['versus', 'comparar', 'diferencia', 'mejor periodo', 'vs', 'comparación'],
-            'generar power bi': ['power bi', 'archivo para power bi', 'exportar a power bi', 'visualización']
+            'desempeño': ['desempeño', 'rendimiento', 'eficiencia', 'cómo le fue', 'resultado', 'desempeno', 'ventas', 'altas'],
+            'predicción': ['predicción', 'cumplirá', 'va a cumplir', 'cerca de la meta', 'lejos de la meta', 'pronóstico', 'proyección', 'cumplimiento'],
+            'comparación': ['versus', 'comparar', 'diferencia', 'mejor periodo', 'vs', 'comparación', 'comparativo'],
+            'generar power bi': ['power bi', 'archivo para power bi', 'exportar a power bi', 'visualización', 'dashboard']
         }
 
         self.aliados_validos = [
@@ -23,9 +23,9 @@ class AnalysisEngine:
 
         # Mapeo de meses en español a números
         self.meses = {
-            'enero': '1', 'febrero': '2', 'marzo': '3', 'abril': '4',
-            'mayo': '5', 'junio': '6', 'julio': '7', 'agosto': '8',
-            'septiembre': '9', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+            'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+            'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
         }
 
     def filtrar_por_aliado(self, df, aliado=None):
@@ -57,35 +57,26 @@ class AnalysisEngine:
         return None
 
     def detectar_periodo(self, pregunta):
-        """Mejorada para detectar año y mes específicos"""
+        """Detección optimizada para 2025"""
         pregunta_lower = pregunta.lower()
         
-        # Detectar año específico
-        año = None
-        for year in ['2024', '2025']:
-            if year in pregunta:
-                año = year
-                break
-        
-        # Detectar mes
+        # Detectar mes específico
         mes_num = None
+        mes_nombre_detectado = None
         for mes_nombre, num in self.meses.items():
             if mes_nombre in pregunta_lower:
                 mes_num = num
+                mes_nombre_detectado = mes_nombre
                 break
         
         def filtro(df):
-            if año and mes_num:
-                # Buscar patrones como "2024-09", "09/2024", "Septiembre 2024"
+            if mes_num:
+                # Buscar en datos de 2025 con el mes detectado
                 return df[
-                    df['mes'].astype(str).str.contains(f"{año}.*{mes_num}", case=False, na=False) |
-                    df['mes'].astype(str).str.contains(f"{mes_num}.*{año}", case=False, na=False)
+                    df['mes'].astype(str).str.contains(f"2025.*{mes_num}", case=False, na=False) |
+                    df['mes'].astype(str).str.contains(f"{mes_num}.*2025", case=False, na=False) |
+                    df['mes'].astype(str).str.contains(mes_nombre_detectado, case=False, na=False)
                 ]
-            elif año:
-                return df[df['mes'].astype(str).str.contains(año, case=False, na=False)]
-            elif mes_num:
-                # Asumir año actual (2025) si no se especifica
-                return df[df['mes'].astype(str).str.contains(f"2025.*{mes_num}", case=False, na=False)]
             return df
         
         return filtro
@@ -108,7 +99,7 @@ class AnalysisEngine:
         elif intent == "generar power bi":
             return "📊 El dashboard ya está visible en el panel izquierdo. ¿En qué más puedo ayudarte?"
         else:
-            return "Lo siento, no entendí. Puedo ayudarte con desempeño, predicción, comparación."
+            return "🤖 No entendí tu pregunta. Puedo ayudarte con:\n• Desempeño de aliados\n• Predicción de cumplimiento\n• Comparaciones entre periodos\n• Consultas sobre ventas y altas"
 
     def analizar_desempenio(self, aliado, pregunta):
         df = self.filtrar_por_aliado(self.df, aliado)
@@ -117,18 +108,28 @@ class AnalysisEngine:
             df = filtro_periodo(df)
         
         if df.empty:
-            return "❌ No se encontraron datos para el periodo o aliado especificado."
+            periodo_msg = self._construir_mensaje_periodo(pregunta)
+            return f"❌ No se encontraron datos para {aliado if aliado else 'el aliado'}{periodo_msg}"
         
         total_altas = df['altas'].sum()
         total_ingresos = df['ingresos'].sum()
         
-        # Construir mensaje de periodo
         periodo_msg = self._construir_mensaje_periodo(pregunta)
 
         if aliado:
-            return f"📊 Desempeño del aliado **{aliado}**{periodo_msg}:\n- Altas totales: {total_altas:,.0f}\n- Ingresos totales: S/ {total_ingresos:,.2f}"
+            return (
+                f"📊 **Desempeño de {aliado}**{periodo_msg}:\n\n"
+                f"• **Altas totales:** {total_altas:,.0f}\n"
+                f"• **Ingresos totales:** S/ {total_ingresos:,.2f}\n"
+                f"• **Registros analizados:** {len(df):,}"
+            )
         else:
-            return f"📊 Desempeño global{periodo_msg}:\n- Altas totales: {total_altas:,.0f}\n- Ingresos totales: S/ {total_ingresos:,.2f}"
+            return (
+                f"📊 **Desempeño Global**{periodo_msg}:\n\n"
+                f"• **Altas totales:** {total_altas:,.0f}\n"
+                f"• **Ingresos totales:** S/ {total_ingresos:,.2f}\n"
+                f"• **Registros analizados:** {len(df):,}"
+            )
 
     def predecir_cumplimiento(self, aliado, pregunta):
         df = self.filtrar_por_aliado(self.df, aliado)
@@ -139,7 +140,8 @@ class AnalysisEngine:
             df_metas = filtro_periodo(df_metas)
         
         if df.empty or df_metas.empty:
-            return "❌ No se encontraron datos o metas para el periodo especificado."
+            periodo_msg = self._construir_mensaje_periodo(pregunta)
+            return f"❌ No se encontraron datos o metas para {aliado if aliado else 'el aliado'}{periodo_msg}"
         
         altas_logradas = df['altas'].sum()
         ingresos_logrados = df['ingresos'].sum()
@@ -147,82 +149,119 @@ class AnalysisEngine:
         meta_ingresos = df_metas['ingresos'].sum() if 'ingresos' in df_metas.columns else 0
         
         if meta_altas == 0 or meta_ingresos == 0:
-            return "❌ No se encontraron metas definidas para el periodo especificado."
+            return "❌ No se encontraron metas definidas para el análisis."
         
         cumplimiento_altas = (altas_logradas / meta_altas * 100) if meta_altas > 0 else 0
         cumplimiento_ingresos = (ingresos_logrados / meta_ingresos * 100) if meta_ingresos > 0 else 0
         
-        estado_altas = "🟢 Cerca de la meta" if cumplimiento_altas >= 80 else "🟡 A mitad de camino" if cumplimiento_altas >= 50 else "🔴 Lejos de la meta"
-        estado_ingresos = "🟢 Cerca de la meta" if cumplimiento_ingresos >= 80 else "🟡 A mitad de camino" if cumplimiento_ingresos >= 50 else "🔴 Lejos de la meta"
+        # Estados más detallados
+        if cumplimiento_altas >= 90:
+            estado_altas = "🟢 Excelente - Supera meta"
+        elif cumplimiento_altas >= 80:
+            estado_altas = "🟢 Bueno - Cerca de meta"
+        elif cumplimiento_altas >= 60:
+            estado_altas = "🟡 Regular - En progreso"
+        else:
+            estado_altas = "🔴 Crítico - Lejos de meta"
+            
+        if cumplimiento_ingresos >= 90:
+            estado_ingresos = "🟢 Excelente - Supera meta"
+        elif cumplimiento_ingresos >= 80:
+            estado_ingresos = "🟢 Bueno - Cerca de meta"
+        elif cumplimiento_ingresos >= 60:
+            estado_ingresos = "🟡 Regular - En progreso"
+        else:
+            estado_ingresos = "🔴 Crítico - Lejos de meta"
         
         periodo_msg = self._construir_mensaje_periodo(pregunta)
 
         if aliado:
             return (
-                f"🎯 Predicción de cumplimiento para **{aliado}**{periodo_msg}:\n"
-                f"- Altas: {cumplimiento_altas:.1f}% ({altas_logradas:,.0f} / {meta_altas:,.0f}) → {estado_altas}\n"
-                f"- Ingresos: {cumplimiento_ingresos:.1f}% (S/ {ingresos_logrados:,.2f} / S/ {meta_ingresos:,.2f}) → {estado_ingresos}"
+                f"🎯 **Predicción de Cumplimiento - {aliado}**{periodo_msg}:\n\n"
+                f"**ALTAS:**\n"
+                f"• Logrado: {altas_logradas:,.0f} / Meta: {meta_altas:,.0f}\n"
+                f"• Cumplimiento: {cumplimiento_altas:.1f}% → {estado_altas}\n\n"
+                f"**INGRESOS:**\n"
+                f"• Logrado: S/ {ingresos_logrados:,.2f} / Meta: S/ {meta_ingresos:,.2f}\n"
+                f"• Cumplimiento: {cumplimiento_ingresos:.1f}% → {estado_ingresos}"
             )
         else:
             return (
-                f"🎯 Predicción de cumplimiento global{periodo_msg}:\n"
-                f"- Altas: {cumplimiento_altas:.1f}% ({altas_logradas:,.0f} / {meta_altas:,.0f}) → {estado_altas}\n"
-                f"- Ingresos: {cumplimiento_ingresos:.1f}% (S/ {ingresos_logrados:,.2f} / S/ {meta_ingresos:,.2f}) → {estado_ingresos}"
+                f"🎯 **Predicción de Cumplimiento Global**{periodo_msg}:\n\n"
+                f"**ALTAS:**\n"
+                f"• Logrado: {altas_logradas:,.0f} / Meta: {meta_altas:,.0f}\n"
+                f"• Cumplimiento: {cumplimiento_altas:.1f}% → {estado_altas}\n\n"
+                f"**INGRESOS:**\n"
+                f"• Logrado: S/ {ingresos_logrados:,.2f} / Meta: S/ {meta_ingresos:,.2f}\n"
+                f"• Cumplimiento: {cumplimiento_ingresos:.1f}% → {estado_ingresos}"
             )
 
     def comparar_periodos(self, aliado, pregunta):
+        """Comparación optimizada para datos de 2025"""
         df = self.filtrar_por_aliado(self.df, aliado)
-        df_2024 = df[df['mes'].astype(str).str.contains('2024', case=False, na=False)]
-        df_2025 = df[df['mes'].astype(str).str.contains('2025', case=False, na=False)]
         
-        if df_2024.empty or df_2025.empty:
-            return "❌ No se encontraron datos suficientes para comparar periodos."
+        if df.empty:
+            return f"❌ No se encontraron datos para {aliado if aliado else 'análisis'}."
         
-        altas_2024 = df_2024['altas'].sum()
-        altas_2025 = df_2025['altas'].sum()
-        ingresos_2024 = df_2024['ingresos'].sum()
-        ingresos_2025 = df_2025['ingresos'].sum()
+        # Comparar diferentes meses dentro de 2025
+        meses_comparacion = {}
+        for mes_nombre, mes_num in list(self.meses.items())[:3]:  # Solo primeros 3 meses para ejemplo
+            df_mes = df[
+                df['mes'].astype(str).str.contains(f"2025.*{mes_num}", case=False, na=False) |
+                df['mes'].astype(str).str.contains(mes_nombre, case=False, na=False)
+            ]
+            if not df_mes.empty:
+                meses_comparacion[mes_nombre.capitalize()] = {
+                    'altas': df_mes['altas'].sum(),
+                    'ingresos': df_mes['ingresos'].sum()
+                }
         
-        variacion_altas = ((altas_2025 - altas_2024) / altas_2024 * 100) if altas_2024 > 0 else 0
-        variacion_ingresos = ((ingresos_2025 - ingresos_2024) / ingresos_2024 * 100) if ingresos_2024 > 0 else 0
+        if len(meses_comparacion) < 2:
+            return "❌ No hay suficientes datos de diferentes periodos para comparar."
         
-        mejor_altas = "2025" if altas_2025 > altas_2024 else "2024"
-        mejor_ingresos = "2025" if ingresos_2025 > ingresos_2024 else "2024"
+        # Encontrar mejor mes
+        mejor_mes_altas = max(meses_comparacion.items(), key=lambda x: x[1]['altas'])
+        mejor_mes_ingresos = max(meses_comparacion.items(), key=lambda x: x[1]['ingresos'])
         
         if aliado:
-            return (
-                f"🆚 Comparación 2024 vs 2025 para **{aliado}**:\n"
-                f"- Altas 2024: {altas_2024:,.0f}\n"
-                f"- Altas 2025: {altas_2025:,.0f} ({variacion_altas:+.1f}%)\n"
-                f"- Ingresos 2024: S/ {ingresos_2024:,.2f}\n"
-                f"- Ingresos 2025: S/ {ingresos_2025:,.2f} ({variacion_ingresos:+.1f}%)\n"
-                f"→ Mejor en altas: {mejor_altas}\n"
-                f"→ Mejor en ingresos: {mejor_ingresos}"
-            )
+            respuesta = f"🆚 **Comparación de Periodos - {aliado} (2025)**:\n\n"
         else:
-            return (
-                f"🆚 Comparación global 2024 vs 2025:\n"
-                f"- Altas 2024: {altas_2024:,.0f}\n"
-                f"- Altas 2025: {altas_2025:,.0f} ({variacion_altas:+.1f}%)\n"
-                f"- Ingresos 2024: S/ {ingresos_2024:,.2f}\n"
-                f"- Ingresos 2025: S/ {ingresos_2025:,.2f} ({variacion_ingresos:+.1f}%)\n"
-                f"→ Mejor en altas: {mejor_altas}\n"
-                f"→ Mejor en ingresos: {mejor_ingresos}"
-            )
+            respuesta = f"🆚 **Comparación de Periodos Global (2025)**:\n\n"
+        
+        for mes, datos in meses_comparacion.items():
+            respuesta += f"**{mes}:**\n"
+            respuesta += f"• Altas: {datos['altas']:,.0f}\n"
+            respuesta += f"• Ingresos: S/ {datos['ingresos']:,.2f}\n\n"
+        
+        respuesta += f"**RESUMEN:**\n"
+        respuesta += f"• Mejor en altas: {mejor_mes_altas[0]} ({mejor_mes_altas[1]['altas']:,.0f})\n"
+        respuesta += f"• Mejor en ingresos: {mejor_mes_ingresos[0]} (S/ {mejor_mes_ingresos[1]['ingresos']:,.2f})"
+        
+        return respuesta
 
     def _construir_mensaje_periodo(self, pregunta):
-        """Construye mensaje descriptivo del periodo basado en la pregunta"""
+        """Construye mensaje descriptivo del periodo"""
         pregunta_lower = pregunta.lower()
         
         for mes_nombre in self.meses.keys():
             if mes_nombre in pregunta_lower:
-                for year in ['2024', '2025']:
-                    if year in pregunta:
-                        return f" para {mes_nombre.capitalize()} {year}"
-                return f" para {mes_nombre.capitalize()} 2025"  # Año por defecto
+                return f" en {mes_nombre.capitalize()} 2025"
         
-        for year in ['2024', '2025']:
-            if year in pregunta:
-                return f" para el año {year}"
-                
-        return ""
+        # Si no se detecta mes específico, asumir todo 2025
+        if '2024' in pregunta:
+            return " en 2024 (datos limitados)"
+        else:
+            return " en 2025"
+
+    def obtener_estadisticas_rapidas(self, aliado=None):
+        """Método auxiliar para estadísticas rápidas"""
+        df = self.filtrar_por_aliado(self.df, aliado)
+        
+        if df.empty:
+            return "No hay datos disponibles."
+        
+        total_altas = df['altas'].sum()
+        total_ingresos = df['ingresos'].sum()
+        aliados_unicos = df['campana_final'].nunique()
+        
+        return f"📈 Stats: {total_altas:,.0f} altas, S/ {total_ingresos:,.2f} ingresos, {aliados_unicos} aliados"
