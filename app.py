@@ -1,34 +1,42 @@
 from flask import Flask, request, jsonify, send_from_directory
+import os
+import threading
 
 app = Flask(__name__, static_folder='.')
 
-# Variables globales (se inicializarán en el primer request)
+# Variables globales - CARGAR AL INICIO
 engine = None
 sessions = {}
+data_loaded = False
+load_error = None
 
-# Rutas de Excel
-RUTAS_EXCEL = [
-    "Base Consolidada 2024.xlsx",
-    "Base Consolidada 2025.xlsx"
-]
-
-def init_engine():
-    """Inicializa el motor de análisis (solo una vez)."""
-    global engine
-    if engine is not None:
-        return
+def initialize_engine():
+    """Función para inicializar el motor en segundo plano"""
+    global engine, data_loaded, load_error
     
-    print("⏳ Cargando datos de Excel...")
     try:
+        print("🚀 Iniciando carga de datos...")
+        
+        # Importar aquí para evitar dependencias circulares
         from data_loader import cargar_datos
         from analysis_engine import AnalysisEngine
-        df_consolidado, df_metas = cargar_datos(RUTAS_EXCEL)
+        
+        # Cargar datos - AHORA CON 4 ARCHIVOS CSV
+        df_consolidado, df_metas = cargar_datos()
         engine = AnalysisEngine(df_consolidado, df_metas)
-        print("✅ Datos cargados correctamente.")
+        data_loaded = True
+        print("✅ Datos y motor cargados exitosamente")
+        
     except Exception as e:
-        print(f"❌ Error al cargar datos: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error crítico al cargar datos: {e}")
+        load_error = str(e)
+        data_loaded = False
+
+# Iniciar carga inmediatamente al importar el módulo
+print("🔄 Iniciando carga de datos en segundo plano...")
+init_thread = threading.Thread(target=initialize_engine)
+init_thread.daemon = True
+init_thread.start()
 
 @app.route('/')
 def serve_index():
@@ -40,14 +48,17 @@ def serve_static(path):
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    global engine, sessions
+    global engine, data_loaded, load_error
     
-    # Inicializar el motor en el primer request
-    if engine is None:
-        init_engine()
-        if engine is None:
+    # Verificar si los datos están cargados
+    if not data_loaded:
+        if load_error:
             return jsonify({
-                "content": "❌ Error crítico: No se pudieron cargar los datos. Contacta al administrador."
+                "content": f"❌ Error cargando datos: {load_error}. Por favor, recarga la página."
+            })
+        else:
+            return jsonify({
+                "content": "⏳ Los datos aún se están cargando. Por favor, espera unos segundos y vuelve a intentar."
             })
     
     data = request.get_json()
@@ -81,3 +92,12 @@ def chat():
     except Exception as e:
         print(f"Error al responder: {e}")
         return jsonify({"content": "❌ Ocurrió un error al procesar tu solicitud."})
+
+@app.route('/status')
+def status():
+    """Endpoint para verificar el estado de la carga"""
+    return jsonify({
+        "data_loaded": data_loaded,
+        "load_error": load_error,
+        "sessions_active": len(sessions)
+    })
