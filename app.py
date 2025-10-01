@@ -75,7 +75,3 @@ except Exception as e:
     import traceback
     traceback.print_exc()
     engine = None
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False)
