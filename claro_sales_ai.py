@@ -27,6 +27,7 @@ def corregir_palabras(texto):
         'ultimos': 'últimos', 'ultimo': 'último',
         'proyeccion': 'proyección', 'proyeccion': 'proyección',
         'ventas': 'ventas', 'venta': 'ventas',
+        'vs': 'vs'
     }
     palabras = texto.split()
     resultado = []
@@ -142,7 +143,37 @@ class ClaraIA:
             return []
         return sorted(self.sales_df['Mes_Año'].unique(), reverse=True)[:n]
 
-    # === NUEVOS MÉTODOS ANALÍTICOS ===
+    # === NUEVO: Comparativo de DOS aliados en últimos 3 meses ===
+    def get_comparativo_dos_aliados_3meses(self, aliado1, aliado2):
+        meses = self.get_last_n_months(3)
+        df = self.sales_df.copy()
+        df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
+        df_filtrado = df[
+            (df['ALIADO'].isin([aliado1, aliado2])) &
+            (df['Mes_Año'].isin(meses))
+        ]
+        if df_filtrado.empty:
+            return None
+        comparativo = df_filtrado.groupby(['Mes_Año', 'ALIADO']).agg({
+            'ALTAS': 'sum',
+            'INGRESOS': 'sum'
+        }).reset_index()
+        pivot_altas = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='ALTAS').fillna(0)
+        pivot_ingresos = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='INGRESOS').fillna(0)
+        for aliado in [aliado1, aliado2]:
+            if aliado not in pivot_altas.columns:
+                pivot_altas[aliado] = 0
+            if aliado not in pivot_ingresos.columns:
+                pivot_ingresos[aliado] = 0
+        pivot_altas = pivot_altas.reindex(meses, fill_value=0)
+        pivot_ingresos = pivot_ingresos.reindex(meses, fill_value=0)
+        return {
+            'meses': meses,
+            'altas': pivot_altas[[aliado1, aliado2]].to_dict(),
+            'ingresos': pivot_ingresos[[aliado1, aliado2]].to_dict()
+        }
+
+    # === Otros métodos analíticos (resumidos para brevedad, pero completos) ===
     def get_top_aliado_por_producto(self, producto, mes=None):
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -202,19 +233,17 @@ class ClaraIA:
         primer_dia = datetime(year, month, 1)
         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         if hoy.month != month or hoy.year != year:
-            return None  # Solo mes actual
+            return None
         ultimo_dia = (primer_dia.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
         dias_trans = contar_dias_habiles(primer_dia, min(hoy, ultimo_dia))
         dias_tot = contar_dias_habiles(primer_dia, ultimo_dia)
         if dias_trans == 0 or dias_tot == 0:
             return None
 
-        # Ventas reales
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         ventas = df.groupby('ALIADO').agg({'ALTAS':'sum','INGRESOS':'sum'}).reset_index()
 
-        # Metas
         metas = self.metas_df.copy()
         metas['MES'] = pd.to_datetime(metas['MES'], format='%d/%m/%Y', errors='coerce')
         metas = metas.dropna(subset=['MES'])
@@ -225,7 +254,6 @@ class ClaraIA:
         metas['Ingresos'] = pd.to_numeric(metas['Ingresos'], errors='coerce').fillna(0)
         metas_agg = metas.groupby('ALIADO').agg({'Altas':'sum','Ingresos':'sum'}).reset_index()
 
-        # Proyección
         proj = pd.merge(ventas, metas_agg, on='ALIADO', how='outer').fillna(0)
         proj['PROY_ALTAS'] = (proj['ALTAS'] / dias_trans) * dias_tot
         proj['PROY_INGRESOS'] = (proj['INGRESOS'] / dias_trans) * dias_tot
@@ -234,7 +262,6 @@ class ClaraIA:
         proj = proj.replace([float('inf'), -float('inf')], 0)
         return proj.to_dict(orient='records'), dias_trans, dias_tot
 
-    # === MÉTODOS EXISTENTES ===
     def get_cumplimiento_detalle(self, aliado=None, producto=None, mes=None):
         if mes is None: mes = self.get_current_month()
         ventas = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -283,57 +310,64 @@ class ClaraIA:
         html += '</tbody></table>'
         return html
 
-    def _generate_bar_chart_html(self, chart_id, labels, altas, ingresos):
-        return f'''
-        <div style="height:280px; margin:15px 0; position:relative;">
-            <canvas id="{chart_id}" width="400" height="250"></canvas>
-        </div>
-        <script>
-            (function() {{
-                if (typeof Chart !== 'undefined') {{
-                    const ctx = document.getElementById('{chart_id}').getContext('2d');
-                    new Chart(ctx, {{
-                        type: 'bar',
-                        data: {{
-                            labels: {json.dumps(labels)},
-                            datasets: [
-                                {{ label: 'Altas', data: {json.dumps(altas)}, backgroundColor: '#0078d4', yAxisID: 'y' }},
-                                {{ label: 'Ingresos ($)', data: {json.dumps(ingresos)}, backgroundColor: '#e60000', yAxisID: 'y1' }}
-                            ]
-                        }},
-                        options: {{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {{
-                                legend: {{ position: 'top' }},
-                                tooltip: {{
-                                    callbacks: {{
-                                        label: function(context) {{
-                                            let label = context.dataset.label || '';
-                                            if (label === 'Ingresos ($)') return label + ': $' + context.parsed.y.toLocaleString();
-                                            return label + ': ' + context.parsed.y.toLocaleString();
-                                        }}
-                                    }}
-                                }}
-                            }},
-                            scales: {{
-                                y: {{ type: 'linear', display: true, position: 'left', title: {{ display: true, text: 'Altas' }}, grid: {{ drawOnChartArea: false }} }},
-                                y1: {{ type: 'linear', display: true, position: 'right', title: {{ display: true, text: 'Ingresos ($)' }}, grid: {{ drawOnChartArea: false }}, ticks: {{ callback: function(v) {{ return '$' + v.toLocaleString(); }} }} }}
-                            }}
-                        }}
-                    }});
-                }}
-            }})();
-        </script>
-        '''
-
     def ask(self, question):
         question_norm = corregir_palabras(question.lower())
         question_lower = question_norm
         mes = self.extract_month_from_question(question)
         aliados_validos = ['COS', 'AQI', 'BRM', 'ATENTO', 'ABAI', 'MILLENIUM', 'NEXA', 'LATCOM', 'IBR', 'ALMACONTACT']
 
-        # 🔹 PROYECCIÓN
+        # 🔹 Comparativo de DOS aliados (ej: COS vs BRM)
+        if ("comparativo" in question_lower or "comparacion" in question_lower) and ("vs" in question_lower or ("aliado" in question_lower and "y" in question_lower)):
+            aliados_encontrados = []
+            for aliado in aliados_validos:
+                if aliado.lower() in question_lower:
+                    aliados_encontrados.append(aliado)
+            if len(aliados_encontrados) >= 2:
+                aliado1, aliado2 = aliados_encontrados[0], aliados_encontrados[1]
+                datos = self.get_comparativo_dos_aliados_3meses(aliado1, aliado2)
+                if datos:
+                    headers = ['Mes', f'{aliado1} - Altas', f'{aliado2} - Altas', f'{aliado1} - Ingresos', f'{aliado2} - Ingresos']
+                    rows = []
+                    for mes in datos['meses']:
+                        a1_altas = int(datos['altas'][aliado1].get(mes, 0))
+                        a2_altas = int(datos['altas'][aliado2].get(mes, 0))
+                        a1_ing = float(datos['ingresos'][aliado1].get(mes, 0))
+                        a2_ing = float(datos['ingresos'][aliado2].get(mes, 0))
+                        rows.append([
+                            mes,
+                            f"{a1_altas:,}",
+                            f"{a2_altas:,}",
+                            f"${a1_ing:,.0f}",
+                            f"${a2_ing:,.0f}"
+                        ])
+                    tabla = self._generate_html_table(headers, rows)
+
+                    # 🔍 Análisis en texto
+                    total_a1_altas = sum(datos['altas'][aliado1].values())
+                    total_a2_altas = sum(datos['altas'][aliado2].values())
+                    total_a1_ing = sum(datos['ingresos'][aliado1].values())
+                    total_a2_ing = sum(datos['ingresos'][aliado2].values())
+
+                    if total_a1_altas > total_a2_altas:
+                        lider_altas = f"{aliado1} lidera en altas"
+                    elif total_a2_altas > total_a1_altas:
+                        lider_altas = f"{aliado2} lidera en altas"
+                    else:
+                        lider_altas = "Ambos aliados tienen el mismo volumen de altas"
+
+                    if total_a1_ing > total_a2_ing:
+                        lider_ing = f"{aliado1} genera más ingresos"
+                    elif total_a2_ing > total_a1_ing:
+                        lider_ing = f"{aliado2} genera más ingresos"
+                    else:
+                        lider_ing = "Ambos generan ingresos similares"
+
+                    analisis = f"<p><strong>🔍 Análisis:</strong> {lider_altas} y {lider_ing} en los últimos 3 meses.</p>"
+                    return f"<h3 style='color:#e60000;'>📊 Comparativo: {aliado1} vs {aliado2} - Últimos 3 meses</h3>{tabla}{analisis}"
+                else:
+                    return f"<p>❌ No hay datos para comparar <strong>{aliado1}</strong> y <strong>{aliado2}</strong>.</p>"
+
+        # 🔹 Proyección
         if "proyección" in question_lower or "proyeccion" in question_lower:
             if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower:
                 return "<p>⚠️ La proyección solo está disponible para el mes en curso.</p>"
@@ -408,7 +442,7 @@ class ClaraIA:
                 return f"<p>❌ No hay datos {txt}.</p>"
 
         # 🔹 Comparativo de aliados por producto
-        if "comparativo" in question_lower and "aliado" in question_lower:
+        if "comparativo" in question_lower and "aliado" in question_lower and not ("vs" in question_lower or "y" in question_lower):
             productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
             for prod in productos:
                 if prod in question_lower:
@@ -468,8 +502,7 @@ class ClaraIA:
             <li>¿Cumplimiento del aliado ATENTO?</li>
             <li>¿Qué aliado vendió más Internet este mes?</li>
             <li>¿Cuál es el producto más vendido en los últimos 3 meses?</li>
-            <li>¿Cuál es el producto menos vendido este mes?</li>
-            <li>Comparativo de aliados en Servicios Fijo</li>
+            <li>Comparativo: COS vs BRM en los últimos 3 meses</li>
             <li>Dame la proyección de cumplimiento este mes</li>
             <li>Desempeño del aliado BRM en septiembre 2025</li>
         </ul>
