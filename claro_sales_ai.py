@@ -48,7 +48,7 @@ def contar_dias_habiles(fecha_inicio, fecha_fin):
     dias = 0
     current = fecha_inicio
     while current <= fecha_fin:
-        if current.weekday() < 5:  # Lunes a viernes
+        if current.weekday() < 5:
             if current.strftime("%Y-%m-%d") not in CO_HOLIDAYS:
                 dias += 1
         current += timedelta(days=1)
@@ -143,7 +143,7 @@ class ClaraIA:
             return []
         return sorted(self.sales_df['Mes_Año'].unique(), reverse=True)[:n]
 
-    # === NUEVO: Comparativo de DOS aliados en últimos 3 meses ===
+    # === Comparativo de DOS aliados ===
     def get_comparativo_dos_aliados_3meses(self, aliado1, aliado2):
         meses = self.get_last_n_months(3)
         df = self.sales_df.copy()
@@ -173,7 +173,7 @@ class ClaraIA:
             'ingresos': pivot_ingresos[[aliado1, aliado2]].to_dict()
         }
 
-    # === Otros métodos analíticos (resumidos para brevedad, pero completos) ===
+    # === Métodos analíticos ===
     def get_top_aliado_por_producto(self, producto, mes=None):
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -316,7 +316,7 @@ class ClaraIA:
         mes = self.extract_month_from_question(question)
         aliados_validos = ['COS', 'AQI', 'BRM', 'ATENTO', 'ABAI', 'MILLENIUM', 'NEXA', 'LATCOM', 'IBR', 'ALMACONTACT']
 
-        # 🔹 Comparativo de DOS aliados (ej: COS vs BRM)
+        # 🔹 Comparativo de DOS aliados
         if ("comparativo" in question_lower or "comparacion" in question_lower) and ("vs" in question_lower or ("aliado" in question_lower and "y" in question_lower)):
             aliados_encontrados = []
             for aliado in aliados_validos:
@@ -341,27 +341,22 @@ class ClaraIA:
                             f"${a2_ing:,.0f}"
                         ])
                     tabla = self._generate_html_table(headers, rows)
-
-                    # 🔍 Análisis en texto
                     total_a1_altas = sum(datos['altas'][aliado1].values())
                     total_a2_altas = sum(datos['altas'][aliado2].values())
                     total_a1_ing = sum(datos['ingresos'][aliado1].values())
                     total_a2_ing = sum(datos['ingresos'][aliado2].values())
-
                     if total_a1_altas > total_a2_altas:
                         lider_altas = f"{aliado1} lidera en altas"
                     elif total_a2_altas > total_a1_altas:
                         lider_altas = f"{aliado2} lidera en altas"
                     else:
                         lider_altas = "Ambos aliados tienen el mismo volumen de altas"
-
                     if total_a1_ing > total_a2_ing:
                         lider_ing = f"{aliado1} genera más ingresos"
                     elif total_a2_ing > total_a1_ing:
                         lider_ing = f"{aliado2} genera más ingresos"
                     else:
                         lider_ing = "Ambos generan ingresos similares"
-
                     analisis = f"<p><strong>🔍 Análisis:</strong> {lider_altas} y {lider_ing} en los últimos 3 meses.</p>"
                     return f"<h3 style='color:#e60000;'>📊 Comparativo: {aliado1} vs {aliado2} - Últimos 3 meses</h3>{tabla}{analisis}"
                 else:
@@ -390,26 +385,15 @@ class ClaraIA:
             except Exception as e:
                 return f"<p>❌ Error en proyección: {str(e)}</p>"
 
-        # 🔹 Aliado que más vendió un producto
-        if ("aliado" in question_lower and ("más" in question_lower or "mas" in question_lower)) or "quién vendió más" in question_lower:
-            productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
-            for prod in productos:
-                if prod in question_lower:
-                    res = self.get_top_aliado_por_producto(prod, mes)
-                    if res:
-                        return f'''
-                        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                            <h3 style="color:#e60000;">🏆 Aliado con más ventas de '{prod.title()}' en {res['mes']}</h3>
-                            <p><strong>Aliado:</strong> {res['aliado']}</p>
-                            <p><strong>Altas:</strong> {res['altas']:,}</p>
-                            <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
-                        </div>
-                        '''
-                    else:
-                        return f"<p>❌ No hay datos para <strong>{prod}</strong> en {mes}.</p>"
-
-        # 🔹 Producto más/menos vendido
-        if "producto más vendido" in question_lower or "producto mas vendido" in question_lower:
+        # 🔹 PRODUCTO MÁS VENDIDO — REGLA FLEXIBLE
+        frases_top = [
+            "producto mas vendido", "producto más vendido",
+            "cual es el producto mas", "cuál es el producto más",
+            "que producto se vendio mas", "qué producto se vendió más",
+            "cual fue el producto mas vendido", "cuál fue el producto más vendido",
+            "cual es el producto que mas se vendio", "cuál es el producto que más se vendió"
+        ]
+        if any(frase in question_lower for frase in frases_top):
             periodo = '3meses' if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower else 'anio' if "año" in question_lower else 'mes'
             res = self.get_producto_mas_vendido(periodo)
             txt = "en los últimos 3 meses" if periodo=='3meses' else "en el año" if periodo=='anio' else f"en {mes}"
@@ -425,6 +409,7 @@ class ClaraIA:
             else:
                 return f"<p>❌ No hay datos {txt}.</p>"
 
+        # 🔹 PRODUCTO MENOS VENDIDO
         if "producto menos vendido" in question_lower:
             periodo = '3meses' if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower else 'mes'
             res = self.get_producto_menos_vendido(periodo)
@@ -440,6 +425,32 @@ class ClaraIA:
                 '''
             else:
                 return f"<p>❌ No hay datos {txt}.</p>"
+
+        # 🔹 ALIADO QUE MÁS VENDIÓ — REGLA FLEXIBLE
+        frases_aliado = [
+            "que aliado.*mas", "qué aliado.*más", "que aliado ha vendido mas",
+            "qué aliado ha vendido más", "que aliado a vendido mas", "aliado que mas vendio",
+            "aliado que más vendió", "quien vendio mas en", "quién vendió más en"
+        ]
+        # Usamos búsqueda simple (sin regex para evitar complejidad)
+        if any(frase in question_lower for frase in [
+            "que aliado", "qué aliado", "aliado que", "quien vendio", "quién vendió"
+        ]) and ("mas" in question_lower or "más" in question_lower):
+            productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
+            for prod in productos:
+                if prod in question_lower:
+                    res = self.get_top_aliado_por_producto(prod, mes)
+                    if res:
+                        return f'''
+                        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+                            <h3 style="color:#e60000;">🏆 Aliado con más ventas de '{prod.title()}' en {res['mes']}</h3>
+                            <p><strong>Aliado:</strong> {res['aliado']}</p>
+                            <p><strong>Altas:</strong> {res['altas']:,}</p>
+                            <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
+                        </div>
+                        '''
+                    else:
+                        return f"<p>❌ No hay datos para <strong>{prod}</strong> en {mes}.</p>"
 
         # 🔹 Comparativo de aliados por producto
         if "comparativo" in question_lower and "aliado" in question_lower and not ("vs" in question_lower or "y" in question_lower):
@@ -501,6 +512,7 @@ class ClaraIA:
         <ul style="padding-left:20px; margin:10px 0;">
             <li>¿Cumplimiento del aliado ATENTO?</li>
             <li>¿Qué aliado vendió más Internet este mes?</li>
+            <li>¿Cuál es el producto más vendido este mes?</li>
             <li>¿Cuál es el producto más vendido en los últimos 3 meses?</li>
             <li>Comparativo: COS vs BRM en los últimos 3 meses</li>
             <li>Dame la proyección de cumplimiento este mes</li>
