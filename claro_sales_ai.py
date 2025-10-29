@@ -178,8 +178,10 @@ class ClaraIA:
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        df_f = df[df['BASE'].str.contains(producto, case=False, na=False)]
-        if df_f.empty: return None
+        # Búsqueda flexible del producto
+        df_f = df[df['BASE'].str.contains(producto, case=False, na=False, regex=False)]
+        if df_f.empty:
+            return None
         top = df_f.groupby('ALIADO')['ALTAS'].sum().sort_values(ascending=False).head(1)
         aliado = top.index[0]
         altas = int(top.iloc[0])
@@ -222,7 +224,7 @@ class ClaraIA:
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        df_f = df[df['BASE'].str.contains(producto, case=False, na=False)]
+        df_f = df[df['BASE'].str.contains(producto, case=False, na=False, regex=False)]
         if df_f.empty: return None
         res = df_f.groupby('ALIADO').agg({'ALTAS':'sum','INGRESOS':'sum'}).sort_values('ALTAS', ascending=False).reset_index()
         return res.to_dict(orient='records')
@@ -267,7 +269,7 @@ class ClaraIA:
         ventas = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         ventas['ALIADO'] = ventas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: ventas = ventas[ventas['ALIADO'] == aliado]
-        if producto: ventas = ventas[ventas['BASE'].str.contains(producto, case=False, na=False)]
+        if producto: ventas = ventas[ventas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
         ventas_reales = ventas.groupby('BASE').agg({'ALTAS':'sum','INGRESOS':'sum'}).reset_index()
         ventas_reales.columns = ['BASE', 'ALTAS_REALES', 'INGRESOS_REALES']
 
@@ -278,7 +280,7 @@ class ClaraIA:
         metas = metas[metas['Mes_Año'] == mes]
         metas['ALIADO'] = metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: metas = metas[metas['ALIADO'] == aliado]
-        if producto: metas = metas[metas['BASE'].str.contains(producto, case=False, na=False)]
+        if producto: metas = metas[metas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
         metas['Ingresos'] = metas['Ingresos'].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0')
         metas['Ingresos'] = pd.to_numeric(metas['Ingresos'], errors='coerce').fillna(0)
         metas_reales = metas.groupby('BASE').agg({'Altas':'sum','Ingresos':'sum'}).reset_index()
@@ -385,13 +387,12 @@ class ClaraIA:
             except Exception as e:
                 return f"<p>❌ Error en proyección: {str(e)}</p>"
 
-        # 🔹 PRODUCTO MÁS VENDIDO — REGLA FLEXIBLE
+        # 🔹 PRODUCTO MÁS VENDIDO
         frases_top = [
             "producto mas vendido", "producto más vendido",
             "cual es el producto mas", "cuál es el producto más",
             "que producto se vendio mas", "qué producto se vendió más",
-            "cual fue el producto mas vendido", "cuál fue el producto más vendido",
-            "cual es el producto que mas se vendio", "cuál es el producto que más se vendió"
+            "cual fue el producto mas vendido", "cuál fue el producto más vendido"
         ]
         if any(frase in question_lower for frase in frases_top):
             periodo = '3meses' if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower else 'anio' if "año" in question_lower else 'mes'
@@ -426,16 +427,11 @@ class ClaraIA:
             else:
                 return f"<p>❌ No hay datos {txt}.</p>"
 
-        # 🔹 ALIADO QUE MÁS VENDIÓ — REGLA FLEXIBLE
-        frases_aliado = [
-            "que aliado.*mas", "qué aliado.*más", "que aliado ha vendido mas",
-            "qué aliado ha vendido más", "que aliado a vendido mas", "aliado que mas vendio",
-            "aliado que más vendió", "quien vendio mas en", "quién vendió más en"
-        ]
-        # Usamos búsqueda simple (sin regex para evitar complejidad)
-        if any(frase in question_lower for frase in [
-            "que aliado", "qué aliado", "aliado que", "quien vendio", "quién vendió"
-        ]) and ("mas" in question_lower or "más" in question_lower):
+        # 🔹 ALIADO QUE MÁS VENDIÓ UN PRODUCTO — REGLA MEJORADA
+        if (("aliado" in question_lower and "vendido" in question_lower and ("mas" in question_lower or "más" in question_lower)) or
+            ("que aliado" in question_lower and ("mas" in question_lower or "más" in question_lower)) or
+            ("aliado que mas" in question_lower) or
+            ("aliado que más" in question_lower)):
             productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
             for prod in productos:
                 if prod in question_lower:
