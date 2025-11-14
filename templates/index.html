@@ -118,10 +118,13 @@
             <div class="chat-messages" id="chat-messages">
                 <div class="message-bubble bot-message">
                     🤖 ¡Hola! Soy Clara, tu asistente inteligente de ventas.<br><br>
-                    Puedes preguntarme lo que quieras:<br>
+                    Puedes preguntarme:<br>
                     • ¿Cumplimiento del aliado ATENTO?<br>
-                    • Haz un gráfico de ventas por producto de COS<br>
-                    • ¿Cuál es el producto más vendido?<br><br>
+                    • ¿Qué aliado vendió más Adicionales este mes?<br>
+                    • Ranking de vendedores por producto<br>
+                    • Variación de móvil agosto vs julio en Millenium<br>
+                    • Desempeño de aliados de Geovanny Ramirez<br>
+                    • Comportamiento total en los últimos 3 meses<br><br>
                     ¡Estoy aquí para ayudarte!
                 </div>
             </div>
@@ -190,7 +193,7 @@
                 if (data.content) {
                     appendMessage(data.content, false);
                 } else {
-                    appendMessage("❌ Error en el servidor.", false);
+                    appendMessage("❌ Lo siento, ocurrió un error.", false);
                 }
             } catch (error) {
                 const indicator = document.querySelector('.message-bubble.bot-message:last-child');
