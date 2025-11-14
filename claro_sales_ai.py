@@ -4,8 +4,14 @@ from io import StringIO
 from datetime import datetime, timedelta
 import re
 import json
+import os
 
-# === FESTIVOS DE COLOMBIA (2024-2025) ===
+from groq import Groq
+
+# Inicializa cliente de Groq (solo para interpretar preguntas)
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+# Festivos de Colombia 2024-2025
 CO_HOLIDAYS = {
     "2024-01-01", "2024-01-08", "2024-03-25", "2024-03-28", "2024-03-29",
     "2024-05-01", "2024-05-13", "2024-06-03", "2024-06-10", "2024-07-01",
@@ -15,44 +21,6 @@ CO_HOLIDAYS = {
     "2025-05-01", "2025-06-02", "2025-06-30", "2025-07-20", "2025-08-07",
     "2025-08-18", "2025-10-13", "2025-11-03", "2025-11-17", "2025-12-08", "2025-12-25"
 }
-
-def corregir_palabras(texto):
-    correcciones = {
-        'adiado': 'aliado', 'allado': 'aliado', 'aliad': 'aliado', 'aliados': 'aliado',
-        'produto': 'producto', 'product': 'producto', 'productos': 'producto',
-        'cumplimiendo': 'cumplimiento', 'cumplimieto': 'cumplimiento',
-        'desempeno': 'desempeño', 'desempeño': 'desempeño',
-        'meta': 'metas', 'metas': 'metas',
-        'comparacion': 'comparativo', 'comparativo': 'comparativo',
-        'ultimos': 'últimos', 'ultimo': 'último',
-        'proyeccion': 'proyección', 'proyeccion': 'proyección',
-        'ventas': 'ventas', 'venta': 'ventas',
-        'vs': 'vs'
-    }
-    palabras = texto.split()
-    resultado = []
-    for p in palabras:
-        p_limpia = p.strip('.,;:!?¿¡"').lower()
-        if p_limpia in correcciones:
-            resultado.append(correcciones[p_limpia])
-        else:
-            corregido = p_limpia
-            for mal, bien in correcciones.items():
-                if len(p_limpia) >= 3 and mal.startswith(p_limpia[:3]):
-                    corregido = bien
-                    break
-            resultado.append(corregido)
-    return ' '.join(resultado)
-
-def contar_dias_habiles(fecha_inicio, fecha_fin):
-    dias = 0
-    current = fecha_inicio
-    while current <= fecha_fin:
-        if current.weekday() < 5:
-            if current.strftime("%Y-%m-%d") not in CO_HOLIDAYS:
-                dias += 1
-        current += timedelta(days=1)
-    return dias
 
 class ClaraIA:
     def __init__(self, url_consolidado, url_metas):
@@ -90,23 +58,7 @@ class ClaraIA:
         }
         self.sales_df = self.load_csv_from_url(url_consolidado)
         self.metas_df = self.load_csv_from_url(url_metas)
-        print(f"✅ Clara IA: {len(self.sales_df)} filas cargadas")
-
-    def clean_ingresos(self, series):
-        if series.dtype == 'object':
-            series = series.astype(str)
-            series = series.str.replace(r'[$\s.]', '', regex=True)
-            series = series.str.replace(',', '.', regex=False)
-            def clean_val(x):
-                if x in ['nan', '', '-', 'NaN']:
-                    return '0'
-                if x.count('.') > 1:
-                    parts = x.split('.')
-                    x = ''.join(parts[:-1]) + '.' + parts[-1]
-                return x
-            series = series.apply(clean_val)
-            series = pd.to_numeric(series, errors='coerce')
-        return series.fillna(0)
+        print(f"✅ Datos cargados: {len(self.sales_df)} filas en ventas")
 
     def load_csv_from_url(self, url):
         response = requests.get(url)
@@ -119,19 +71,13 @@ class ClaraIA:
         if 'ALTAS' in df.columns:
             df['ALTAS'] = pd.to_numeric(df['ALTAS'], errors='coerce').fillna(0)
         if 'INGRESOS' in df.columns:
-            df['INGRESOS'] = self.clean_ingresos(df['INGRESOS'])
+            df['INGRESOS'] = pd.to_numeric(
+                df['INGRESOS'].astype(str)
+                .str.replace(r'[$\s.]', '', regex=True)
+                .str.replace(',', '.', regex=False),
+                errors='coerce'
+            ).fillna(0)
         return df
-
-    def extract_month_from_question(self, question):
-        question_lower = question.lower()
-        meses = {'enero':'01','febrero':'02','marzo':'03','abril':'04','mayo':'05','junio':'06',
-                 'julio':'07','agosto':'08','septiembre':'09','octubre':'10','noviembre':'11','diciembre':'12'}
-        for mes_nombre, mes_num in meses.items():
-            if mes_nombre in question_lower:
-                year_match = re.search(r'\b(202[45])\b', question)
-                year = year_match.group(1) if year_match else '2025'
-                return f"{year}-{mes_num}"
-        return self.get_current_month()
 
     def get_current_month(self):
         if not self.sales_df.empty and 'Mes_Año' in self.sales_df.columns:
@@ -143,45 +89,22 @@ class ClaraIA:
             return []
         return sorted(self.sales_df['Mes_Año'].unique(), reverse=True)[:n]
 
-    # === Comparativo de DOS aliados ===
-    def get_comparativo_dos_aliados_3meses(self, aliado1, aliado2):
-        meses = self.get_last_n_months(3)
-        df = self.sales_df.copy()
-        df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        df_filtrado = df[
-            (df['ALIADO'].isin([aliado1, aliado2])) &
-            (df['Mes_Año'].isin(meses))
-        ]
-        if df_filtrado.empty:
-            return None
-        comparativo = df_filtrado.groupby(['Mes_Año', 'ALIADO']).agg({
-            'ALTAS': 'sum',
-            'INGRESOS': 'sum'
-        }).reset_index()
-        pivot_altas = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='ALTAS').fillna(0)
-        pivot_ingresos = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='INGRESOS').fillna(0)
-        for aliado in [aliado1, aliado2]:
-            if aliado not in pivot_altas.columns:
-                pivot_altas[aliado] = 0
-            if aliado not in pivot_ingresos.columns:
-                pivot_ingresos[aliado] = 0
-        pivot_altas = pivot_altas.reindex(meses, fill_value=0)
-        pivot_ingresos = pivot_ingresos.reindex(meses, fill_value=0)
-        return {
-            'meses': meses,
-            'altas': pivot_altas[[aliado1, aliado2]].to_dict(),
-            'ingresos': pivot_ingresos[[aliado1, aliado2]].to_dict()
-        }
+    def contar_dias_habiles(self, fecha_inicio, fecha_fin):
+        dias = 0
+        current = fecha_inicio
+        while current <= fecha_fin:
+            if current.weekday() < 5 and current.strftime("%Y-%m-%d") not in CO_HOLIDAYS:
+                dias += 1
+            current += timedelta(days=1)
+        return dias
 
-    # === Métodos analíticos ===
+    # === LÓGICA ANALÍTICA CON DATOS REALES ===
     def get_top_aliado_por_producto(self, producto, mes=None):
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        # Búsqueda flexible del producto
         df_f = df[df['BASE'].str.contains(producto, case=False, na=False, regex=False)]
-        if df_f.empty:
-            return None
+        if df_f.empty: return None
         top = df_f.groupby('ALIADO')['ALTAS'].sum().sort_values(ascending=False).head(1)
         aliado = top.index[0]
         altas = int(top.iloc[0])
@@ -206,41 +129,32 @@ class ClaraIA:
         top = df.groupby('BASE')['ALTAS'].sum().sort_values(ascending=False).head(1)
         return {'producto': top.index[0], 'altas': int(top.iloc[0]), 'ingresos': float(df[df['BASE'] == top.index[0]]['INGRESOS'].sum())}
 
-    def get_producto_menos_vendido(self, periodo='mes'):
-        if periodo == 'mes':
-            mes = self.get_current_month()
-            df = self.sales_df[self.sales_df['Mes_Año'] == mes]
-        elif periodo == '3meses':
-            meses = self.get_last_n_months(3)
-            df = self.sales_df[self.sales_df['Mes_Año'].isin(meses)]
-        else:
-            df = self.sales_df
-        df = df[df['ALTAS'] > 0]
-        if df.empty: return None
-        bottom = df.groupby('BASE')['ALTAS'].sum().sort_values().head(1)
-        return {'producto': bottom.index[0], 'altas': int(bottom.iloc[0]), 'ingresos': float(df[df['BASE'] == bottom.index[0]]['INGRESOS'].sum())}
-
-    def get_comparativo_aliados_por_producto(self, producto, mes=None):
-        if mes is None: mes = self.get_current_month()
-        df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
+    def get_comparativo_dos_aliados_3meses(self, aliado1, aliado2):
+        meses = self.get_last_n_months(3)
+        df = self.sales_df.copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        df_f = df[df['BASE'].str.contains(producto, case=False, na=False, regex=False)]
-        if df_f.empty: return None
-        res = df_f.groupby('ALIADO').agg({'ALTAS':'sum','INGRESOS':'sum'}).sort_values('ALTAS', ascending=False).reset_index()
-        return res.to_dict(orient='records')
+        df_filtrado = df[(df['ALIADO'].isin([aliado1, aliado2])) & (df['Mes_Año'].isin(meses))]
+        if df_filtrado.empty: return None
+        comparativo = df_filtrado.groupby(['Mes_Año', 'ALIADO']).agg({'ALTAS': 'sum', 'INGRESOS': 'sum'}).reset_index()
+        pivot_altas = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='ALTAS').fillna(0)
+        pivot_ingresos = comparativo.pivot(index='Mes_Año', columns='ALIADO', values='INGRESOS').fillna(0)
+        for aliado in [aliado1, aliado2]:
+            if aliado not in pivot_altas.columns: pivot_altas[aliado] = 0
+            if aliado not in pivot_ingresos.columns: pivot_ingresos[aliado] = 0
+        pivot_altas = pivot_altas.reindex(meses, fill_value=0)
+        pivot_ingresos = pivot_ingresos.reindex(meses, fill_value=0)
+        return {'meses': meses, 'altas': pivot_altas[[aliado1, aliado2]].to_dict(), 'ingresos': pivot_ingresos[[aliado1, aliado2]].to_dict()}
 
     def get_proyeccion_aliados(self, mes=None):
         if mes is None: mes = self.get_current_month()
         year, month = map(int, mes.split('-'))
         primer_dia = datetime(year, month, 1)
         hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        if hoy.month != month or hoy.year != year:
-            return None
+        if hoy.month != month or hoy.year != year: return None
         ultimo_dia = (primer_dia.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-        dias_trans = contar_dias_habiles(primer_dia, min(hoy, ultimo_dia))
-        dias_tot = contar_dias_habiles(primer_dia, ultimo_dia)
-        if dias_trans == 0 or dias_tot == 0:
-            return None
+        dias_trans = self.contar_dias_habiles(primer_dia, min(hoy, ultimo_dia))
+        dias_tot = self.contar_dias_habiles(primer_dia, ultimo_dia)
+        if dias_trans == 0 or dias_tot == 0: return None
 
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
@@ -252,8 +166,12 @@ class ClaraIA:
         metas['Mes_Año'] = metas['MES'].dt.strftime('%Y-%m')
         metas = metas[metas['Mes_Año'] == mes]
         metas['ALIADO'] = metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        metas['Ingresos'] = metas['Ingresos'].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0')
-        metas['Ingresos'] = pd.to_numeric(metas['Ingresos'], errors='coerce').fillna(0)
+        metas['Ingresos'] = pd.to_numeric(
+            metas['Ingresos'].astype(str)
+            .str.replace(r'[$\s.]', '', regex=True)
+            .replace('-', '0'),
+            errors='coerce'
+        ).fillna(0)
         metas_agg = metas.groupby('ALIADO').agg({'Altas':'sum','Ingresos':'sum'}).reset_index()
 
         proj = pd.merge(ventas, metas_agg, on='ALIADO', how='outer').fillna(0)
@@ -281,8 +199,12 @@ class ClaraIA:
         metas['ALIADO'] = metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: metas = metas[metas['ALIADO'] == aliado]
         if producto: metas = metas[metas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
-        metas['Ingresos'] = metas['Ingresos'].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0')
-        metas['Ingresos'] = pd.to_numeric(metas['Ingresos'], errors='coerce').fillna(0)
+        metas['Ingresos'] = pd.to_numeric(
+            metas['Ingresos'].astype(str)
+            .str.replace(r'[$\s.]', '', regex=True)
+            .replace('-', '0'),
+            errors='coerce'
+        ).fillna(0)
         metas_reales = metas.groupby('BASE').agg({'Altas':'sum','Ingresos':'sum'}).reset_index()
         metas_reales.columns = ['BASE', 'META_ALTAS', 'META_INGRESOS']
 
@@ -312,169 +234,96 @@ class ClaraIA:
         html += '</tbody></table>'
         return html
 
+    # === INTERPRETACIÓN CON GROQ (SOLO LECTURA DE PREGUNTA) ===
+    def interpretar_pregunta(self, pregunta):
+        prompt = f"""
+Eres un asistente analítico de ventas. Convierte la pregunta en JSON con:
+- intencion: "cumplimiento", "desempeño", "producto_mas_vendido", "aliado_top_producto", "comparativo_dos_aliados", "proyeccion"
+- aliado: nombre en mayúsculas (ATENTO, COS, etc.) o null
+- aliado2: segundo aliado o null
+- producto: en minúsculas (adicionales, internet, etc.) o null
+- periodo: "mes_actual", "ultimos_3_meses", "anio", o "2025-10"
+
+Solo responde con el JSON.
+
+Pregunta: "{pregunta}"
+"""
+        try:
+            chat_completion = groq_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model="llama3-8b-8192",
+                temperature=0.1,
+                max_tokens=150
+            )
+            json_str = chat_completion.choices[0].message.content.strip()
+            if json_str.startswith("```"):
+                json_str = json_str.split("```")[1].split("```")[0]
+            return json.loads(json_str)
+        except Exception as e:
+            print(f"Error en Groq: {e}")
+            return {"intencion": "desconocida"}
+
     def ask(self, question):
-        question_norm = corregir_palabras(question.lower())
-        question_lower = question_norm
-        mes = self.extract_month_from_question(question)
-        aliados_validos = ['COS', 'AQI', 'BRM', 'ATENTO', 'ABAI', 'MILLENIUM', 'NEXA', 'LATCOM', 'IBR', 'ALMACONTACT']
+        intent = self.interpretar_pregunta(question)
+        intencion = intent.get("intencion")
+        aliado = intent.get("aliado")
+        aliado2 = intent.get("aliado2")
+        producto = intent.get("producto")
+        periodo = intent.get("periodo", "mes_actual")
 
-        # 🔹 Comparativo de DOS aliados
-        if ("comparativo" in question_lower or "comparacion" in question_lower) and ("vs" in question_lower or ("aliado" in question_lower and "y" in question_lower)):
-            aliados_encontrados = []
-            for aliado in aliados_validos:
-                if aliado.lower() in question_lower:
-                    aliados_encontrados.append(aliado)
-            if len(aliados_encontrados) >= 2:
-                aliado1, aliado2 = aliados_encontrados[0], aliados_encontrados[1]
-                datos = self.get_comparativo_dos_aliados_3meses(aliado1, aliado2)
+        mes = self.get_current_month() if periodo in ["mes_actual", "ultimos_3_meses", "anio"] else periodo
+
+        try:
+            if intencion == "aliado_top_producto" and producto:
+                res = self.get_top_aliado_por_producto(producto, mes)
+                if res:
+                    return f'''
+                    <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+                        <h3 style="color:#e60000;">🏆 Aliado con más ventas de '{producto.title()}' en {res['mes']}</h3>
+                        <p><strong>Aliado:</strong> {res['aliado']}</p>
+                        <p><strong>Altas:</strong> {res['altas']:,}</p>
+                        <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
+                    </div>
+                    '''
+            elif intencion == "producto_mas_vendido":
+                res = self.get_producto_mas_vendido('3meses' if periodo == "ultimos_3_meses" else 'mes')
+                if res:
+                    txt = "en los últimos 3 meses" if periodo == "ultimos_3_meses" else f"en {mes}"
+                    return f'''
+                    <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+                        <h3 style="color:#e60000;">🔥 Producto más vendido {txt}</h3>
+                        <p><strong>Producto:</strong> {res['producto']}</p>
+                        <p><strong>Altas:</strong> {res['altas']:,}</p>
+                        <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
+                    </div>
+                    '''
+            elif intencion == "comparativo_dos_aliados" and aliado and aliado2:
+                datos = self.get_comparativo_dos_aliados_3meses(aliado, aliado2)
                 if datos:
-                    headers = ['Mes', f'{aliado1} - Altas', f'{aliado2} - Altas', f'{aliado1} - Ingresos', f'{aliado2} - Ingresos']
+                    headers = ['Mes', f'{aliado} - Altas', f'{aliado2} - Altas', f'{aliado} - Ingresos', f'{aliado2} - Ingresos']
                     rows = []
-                    for mes in datos['meses']:
-                        a1_altas = int(datos['altas'][aliado1].get(mes, 0))
-                        a2_altas = int(datos['altas'][aliado2].get(mes, 0))
-                        a1_ing = float(datos['ingresos'][aliado1].get(mes, 0))
-                        a2_ing = float(datos['ingresos'][aliado2].get(mes, 0))
-                        rows.append([
-                            mes,
-                            f"{a1_altas:,}",
-                            f"{a2_altas:,}",
-                            f"${a1_ing:,.0f}",
-                            f"${a2_ing:,.0f}"
-                        ])
+                    for m in datos['meses']:
+                        a1a = int(datos['altas'][aliado].get(m, 0))
+                        a2a = int(datos['altas'][aliado2].get(m, 0))
+                        a1i = float(datos['ingresos'][aliado].get(m, 0))
+                        a2i = float(datos['ingresos'][aliado2].get(m, 0))
+                        rows.append([m, f"{a1a:,}", f"{a2a:,}", f"${a1i:,.0f}", f"${a2i:,.0f}"])
                     tabla = self._generate_html_table(headers, rows)
-                    total_a1_altas = sum(datos['altas'][aliado1].values())
-                    total_a2_altas = sum(datos['altas'][aliado2].values())
-                    total_a1_ing = sum(datos['ingresos'][aliado1].values())
-                    total_a2_ing = sum(datos['ingresos'][aliado2].values())
-                    if total_a1_altas > total_a2_altas:
-                        lider_altas = f"{aliado1} lidera en altas"
-                    elif total_a2_altas > total_a1_altas:
-                        lider_altas = f"{aliado2} lidera en altas"
-                    else:
-                        lider_altas = "Ambos aliados tienen el mismo volumen de altas"
-                    if total_a1_ing > total_a2_ing:
-                        lider_ing = f"{aliado1} genera más ingresos"
-                    elif total_a2_ing > total_a1_ing:
-                        lider_ing = f"{aliado2} genera más ingresos"
-                    else:
-                        lider_ing = "Ambos generan ingresos similares"
-                    analisis = f"<p><strong>🔍 Análisis:</strong> {lider_altas} y {lider_ing} en los últimos 3 meses.</p>"
-                    return f"<h3 style='color:#e60000;'>📊 Comparativo: {aliado1} vs {aliado2} - Últimos 3 meses</h3>{tabla}{analisis}"
-                else:
-                    return f"<p>❌ No hay datos para comparar <strong>{aliado1}</strong> y <strong>{aliado2}</strong>.</p>"
-
-        # 🔹 Proyección
-        if "proyección" in question_lower or "proyeccion" in question_lower:
-            if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower:
-                return "<p>⚠️ La proyección solo está disponible para el mes en curso.</p>"
-            try:
-                resultado = self.get_proyeccion_aliados(mes)
-                if not resultado:
-                    return "<p>❌ No hay datos suficientes para calcular la proyección.</p>"
-                datos, dias_trans, dias_tot = resultado
-                headers = ['Aliado', 'Proy. Altas (%)', 'Proy. Ingresos (%)']
-                rows = [[d['ALIADO'], f"{d['PROY_ALTAS_%']:.1f}%", f"{d['PROY_INGRESOS_%']:.1f}%"] for d in datos]
-                tabla = self._generate_html_table(headers, rows)
-                return f'''
-                <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                    <h3 style="color:#e60000;">📈 Proyección de cumplimiento - {mes}</h3>
-                    <p><strong>Días hábiles transcurridos:</strong> {dias_trans} de {dias_tot}</p>
-                    <p><em>Proyección = (Ventas actuales / Días transcurridos) × Días totales del mes</em></p>
-                </div>
-                {tabla}
-                '''
-            except Exception as e:
-                return f"<p>❌ Error en proyección: {str(e)}</p>"
-
-        # 🔹 PRODUCTO MÁS VENDIDO
-        frases_top = [
-            "producto mas vendido", "producto más vendido",
-            "cual es el producto mas", "cuál es el producto más",
-            "que producto se vendio mas", "qué producto se vendió más",
-            "cual fue el producto mas vendido", "cuál fue el producto más vendido"
-        ]
-        if any(frase in question_lower for frase in frases_top):
-            periodo = '3meses' if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower else 'anio' if "año" in question_lower else 'mes'
-            res = self.get_producto_mas_vendido(periodo)
-            txt = "en los últimos 3 meses" if periodo=='3meses' else "en el año" if periodo=='anio' else f"en {mes}"
-            if res:
-                return f'''
-                <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                    <h3 style="color:#e60000;">🔥 Producto más vendido {txt}</h3>
-                    <p><strong>Producto:</strong> {res['producto']}</p>
-                    <p><strong>Altas:</strong> {res['altas']:,}</p>
-                    <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
-                </div>
-                '''
-            else:
-                return f"<p>❌ No hay datos {txt}.</p>"
-
-        # 🔹 PRODUCTO MENOS VENDIDO
-        if "producto menos vendido" in question_lower:
-            periodo = '3meses' if "últimos 3 meses" in question_lower or "ultimos 3 meses" in question_lower else 'mes'
-            res = self.get_producto_menos_vendido(periodo)
-            txt = "en los últimos 3 meses" if periodo=='3meses' else f"en {mes}"
-            if res:
-                return f'''
-                <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                    <h3 style="color:#e60000;">📉 Producto menos vendido {txt}</h3>
-                    <p><strong>Producto:</strong> {res['producto']}</p>
-                    <p><strong>Altas:</strong> {res['altas']:,}</p>
-                    <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
-                </div>
-                '''
-            else:
-                return f"<p>❌ No hay datos {txt}.</p>"
-
-        # 🔹 ALIADO QUE MÁS VENDIÓ UN PRODUCTO — REGLA MEJORADA
-        if (("aliado" in question_lower and "vendido" in question_lower and ("mas" in question_lower or "más" in question_lower)) or
-            ("que aliado" in question_lower and ("mas" in question_lower or "más" in question_lower)) or
-            ("aliado que mas" in question_lower) or
-            ("aliado que más" in question_lower)):
-            productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
-            for prod in productos:
-                if prod in question_lower:
-                    res = self.get_top_aliado_por_producto(prod, mes)
-                    if res:
-                        return f'''
-                        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                            <h3 style="color:#e60000;">🏆 Aliado con más ventas de '{prod.title()}' en {res['mes']}</h3>
-                            <p><strong>Aliado:</strong> {res['aliado']}</p>
-                            <p><strong>Altas:</strong> {res['altas']:,}</p>
-                            <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
-                        </div>
-                        '''
-                    else:
-                        return f"<p>❌ No hay datos para <strong>{prod}</strong> en {mes}.</p>"
-
-        # 🔹 Comparativo de aliados por producto
-        if "comparativo" in question_lower and "aliado" in question_lower and not ("vs" in question_lower or "y" in question_lower):
-            productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
-            for prod in productos:
-                if prod in question_lower:
-                    datos = self.get_comparativo_aliados_por_producto(prod, mes)
-                    if datos:
-                        headers = ['Aliado', 'Altas', 'Ingresos ($)']
-                        rows = [[d['ALIADO'], f"{int(d['ALTAS']):,}", f"${float(d['INGRESOS']):,.0f}"] for d in datos]
-                        tabla = self._generate_html_table(headers, rows)
-                        return f"<h3 style='color:#e60000;'>📊 Comparativo de aliados en '{prod.title()}' ({mes})</h3>{tabla}"
-                    else:
-                        return f"<p>❌ No hay datos para <strong>{prod}</strong> en {mes}.</p>"
-
-        # 🔹 Cumplimiento
-        if "cumplimiento" in question_lower:
-            aliado_encontrado = next((a for a in aliados_validos if a.lower() in question_lower), None)
-            productos = ['internet','terminales','ultra wifi','migraciones','portabilidad pospago','línea nueva','ug móvil','tecnología','adicionales','ug fijo','servicios fijo']
-            producto_encontrado = next((p for p in productos if p in question_lower), None)
-            if aliado_encontrado:
-                cumplimiento = self.get_cumplimiento_detalle(aliado_encontrado, producto_encontrado, mes)
+                    total1a = sum(datos['altas'][aliado].values())
+                    total2a = sum(datos['altas'][aliado2].values())
+                    total1i = sum(datos['ingresos'][aliado].values())
+                    total2i = sum(datos['ingresos'][aliado2].values())
+                    lider_altas = aliado if total1a > total2a else aliado2
+                    lider_ing = aliado if total1i > total2i else aliado2
+                    return f"<h3 style='color:#e60000;'>📊 Comparativo: {aliado} vs {aliado2}</h3>{tabla}<p><strong>🔍 Análisis:</strong> {lider_altas} lidera en altas, {lider_ing} en ingresos.</p>"
+            elif intencion == "cumplimiento" and aliado:
+                cumplimiento = self.get_cumplimiento_detalle(aliado=aliado, producto=producto, mes=mes)
                 if cumplimiento:
-                    if producto_encontrado:
+                    if producto:
                         item = cumplimiento[0]
                         return f'''
                         <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                            <h3 style="color:#e60000;">🎯 Cumplimiento de {aliado_encontrado} en {producto_encontrado.title()} ({mes})</h3>
+                            <h3 style="color:#e60000;">🎯 Cumplimiento de {aliado} en {producto.title()} ({mes})</h3>
                             <p><strong>Altas:</strong> {int(item['ALTAS_REALES']):,} / {int(item['META_ALTAS']):,} → <strong>{item['CUMPLIMIENTO_ALTAS_%']}%</strong></p>
                             <p><strong>Ingresos:</strong> ${float(item['INGRESOS_REALES']):,.0f} / ${float(item['META_INGRESOS']):,.0f} → <strong>{item['CUMPLIMIENTO_INGRESOS_%']}%</strong></p>
                         </div>
@@ -483,13 +332,8 @@ class ClaraIA:
                         headers = ['Producto', 'Altas Reales', 'Meta Altas', 'Cumpl. Altas (%)', 'Ingresos Reales', 'Meta Ingresos', 'Cumpl. Ingresos (%)']
                         rows = [[item['BASE'], f"{int(item['ALTAS_REALES']):,}", f"{int(item['META_ALTAS']):,}", f"{item['CUMPLIMIENTO_ALTAS_%']}%", f"${float(item['INGRESOS_REALES']):,.0f}", f"${float(item['META_INGRESOS']):,.0f}", f"{item['CUMPLIMIENTO_INGRESOS_%']}%"] for item in cumplimiento]
                         tabla = self._generate_html_table(headers, rows)
-                        return f"<h3 style='color:#e60000;'>🎯 Cumplimiento de {aliado_encontrado} por producto ({mes})</h3>{tabla}"
-                else:
-                    return f"<p>❌ No hay metas para <strong>{aliado_encontrado}</strong> en {mes}.</p>"
-
-        # 🔹 Desempeño
-        for aliado in aliados_validos:
-            if aliado.lower() in question_lower and ('desempeño' in question_lower or 'desempeno' in question_lower):
+                        return f"<h3 style='color:#e60000;'>🎯 Cumplimiento de {aliado} por producto ({mes})</h3>{tabla}"
+            elif intencion == "desempeño" and aliado:
                 res = self.get_desempeno_aliado(aliado, mes)
                 if res:
                     return f'''
@@ -499,19 +343,31 @@ class ClaraIA:
                         <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
                     </div>
                     '''
-                else:
-                    return f"<p>❌ No hay datos para <strong>{aliado}</strong> en {mes}.</p>"
+            elif intencion == "proyeccion":
+                resultado = self.get_proyeccion_aliados(mes)
+                if resultado:
+                    datos, dt, dtt = resultado
+                    headers = ['Aliado', 'Proy. Altas (%)', 'Proy. Ingresos (%)']
+                    rows = [[d['ALIADO'], f"{d['PROY_ALTAS_%']:.1f}%", f"{d['PROY_INGRESOS_%']:.1f}%"] for d in datos]
+                    tabla = self._generate_html_table(headers, rows)
+                    return f'''
+                    <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+                        <h3 style="color:#e60000;">📈 Proyección de cumplimiento - {mes}</h3>
+                        <p><strong>Días hábiles transcurridos:</strong> {dt} de {dtt}</p>
+                        <p><em>Proyección = (Ventas actuales / Días transcurridos) × Días totales del mes</em></p>
+                    </div>
+                    {tabla}
+                    '''
+        except Exception as e:
+            return f"<p>❌ Error en análisis: {str(e)}</p>"
 
-        # ❓ Ayuda
         return '''
         <p>🤖 Puedes preguntarme:</p>
         <ul style="padding-left:20px; margin:10px 0;">
             <li>¿Cumplimiento del aliado ATENTO?</li>
-            <li>¿Qué aliado vendió más Internet este mes?</li>
-            <li>¿Cuál es el producto más vendido este mes?</li>
+            <li>¿Qué aliado vendió más Adicionales este mes?</li>
             <li>¿Cuál es el producto más vendido en los últimos 3 meses?</li>
             <li>Comparativo: COS vs BRM en los últimos 3 meses</li>
             <li>Dame la proyección de cumplimiento este mes</li>
-            <li>Desempeño del aliado BRM en septiembre 2025</li>
         </ul>
         '''
