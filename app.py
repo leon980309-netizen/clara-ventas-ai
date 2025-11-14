@@ -5,17 +5,16 @@ from claro_sales_ai import ClaraIA
 
 app = Flask(__name__)
 
-# URLs de Google Drive (asegúrate de que sean públicas y descargables)
 URL_CONSOLIDADO = os.environ.get("URL_CONSOLIDADO", "https://drive.google.com/uc?export=download&id=1AA2W0IfqZVPH69yveeTdAYCu30GOvqSK")
 URL_METAS = os.environ.get("URL_METAS", "https://drive.google.com/uc?export=download&id=1Nc-dpGnbFT3qZ2qpYZGZoL0IFTgku4Fc")
 
 clara_ia = None
 try:
-    print("🔄 Inicializando Clara IA con Groq y datos reales...")
+    print("🔄 Inicializando Clara IA...")
     clara_ia = ClaraIA(URL_CONSOLIDADO, URL_METAS)
     print("✅ Clara IA lista.")
 except Exception as e:
-    print(f"❌ Error al iniciar: {e}")
+    print(f"❌ Error: {e}")
 
 @app.route('/')
 def index():
@@ -29,7 +28,7 @@ def chat():
 
     msg = request.json.get('message', '').strip()
     if not msg:
-        return jsonify({"content": "⚠️ Por favor, escribe una pregunta."}), 400
+        return jsonify({"content": "⚠️ Escribe una pregunta."}), 400
 
     try:
         response = clara_ia.ask(msg)
