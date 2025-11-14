@@ -208,7 +208,8 @@
                     • ¿Cumplimiento del aliado ATENTO?<br>
                     • ¿Metas de la campaña COS Masivo Bogotá?<br>
                     • ¿Desempeño del aliado BRM en septiembre 2025?<br>
-                    • Comparativo del aliado BRM en los últimos 3 meses<br><br>
+                    • Comparativo del aliado BRM en los últimos 3 meses<br>
+                    • Haz un graficado de comportamiento por producto de aliado COS<br><br>
                     ¡Estoy aquí para ayudarte!
                 </div>
             </div>
@@ -241,7 +242,14 @@
             const messageDiv = document.createElement('div');
             messageDiv.classList.add('message-bubble');
             messageDiv.classList.add(isUser ? 'user-message' : 'bot-message');
-            messageDiv.innerHTML = content;
+
+            // 🔧 FIX: Solo aplica <br> a texto plano, no a HTML/JS
+            if (!content.includes('<') && !content.includes('>')) {
+                messageDiv.innerHTML = content.replace(/\n/g, '<br>');
+            } else {
+                messageDiv.innerHTML = content;
+            }
+
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
