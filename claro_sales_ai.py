@@ -98,7 +98,7 @@ class ClaraIA:
             current += timedelta(days=1)
         return dias
 
-    # === LÓGICA ANALÍTICA CON DATOS REALES ===
+    # === LÓGICA ANALÍTICA ===
     def get_top_aliado_por_producto(self, producto, mes=None):
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -238,7 +238,8 @@ class ClaraIA:
     def interpretar_pregunta(self, pregunta):
         prompt = f"""
 Eres un asistente analítico de ventas. Convierte la pregunta en JSON con:
-- intencion: "cumplimiento", "desempeño", "producto_mas_vendido", "aliado_top_producto", "comparativo_dos_aliados", "proyeccion"
+- intencion: "cumplimiento", "desempeño", "producto_mas_vendido", "aliado_top_producto", 
+  "comparativo_dos_aliados", "proyeccion", "grafico_producto_aliado"
 - aliado: nombre en mayúsculas (ATENTO, COS, etc.) o null
 - aliado2: segundo aliado o null
 - producto: en minúsculas (adicionales, internet, etc.) o null
@@ -274,7 +275,90 @@ Pregunta: "{pregunta}"
         mes = self.get_current_month() if periodo in ["mes_actual", "ultimos_3_meses", "anio"] else periodo
 
         try:
-            if intencion == "aliado_top_producto" and producto:
+            if intencion == "grafico_producto_aliado" and aliado:
+                df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
+                df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
+                df_f = df[df['ALIADO'] == aliado]
+                if df_f.empty:
+                    return f"<p>❌ No hay datos para <strong>{aliado}</strong> en {mes}.</p>"
+                resumen = df_f.groupby('BASE').agg({'ALTAS': 'sum', 'INGRESOS': 'sum'}).reset_index().sort_values('ALTAS', ascending=False)
+                if resumen.empty:
+                    return f"<p>❌ No hay productos con ventas para <strong>{aliado}</strong>.</p>"
+                productos = resumen['BASE'].tolist()
+                altas = resumen['ALTAS'].astype(int).tolist()
+                ingresos = resumen['INGRESOS'].astype(float).tolist()
+                chart_id = f"chart_{aliado.lower()}"
+                chart_html = f'''
+                <h3 style="color:#e60000;">📊 Comportamiento por producto - {aliado} en {mes}</h3>
+                <div style="height:300px; margin:15px 0;">
+                    <canvas id="{chart_id}"></canvas>
+                </div>
+                <script>
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        const ctx = document.getElementById('{chart_id}').getContext('2d');
+                        new Chart(ctx, {{
+                            type: 'bar',
+                             {{
+                                labels: {json.dumps(productos)},
+                                datasets: [
+                                    {{
+                                        label: 'Altas',
+                                         {json.dumps(altas)},
+                                        backgroundColor: '#0078d4',
+                                        yAxisID: 'y'
+                                    }},
+                                    {{
+                                        label: 'Ingresos ($)',
+                                         {json.dumps(ingresos)},
+                                        backgroundColor: '#e60000',
+                                        yAxisID: 'y1'
+                                    }}
+                                ]
+                            }},
+                            options: {{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {{
+                                    legend: {{ position: 'top' }},
+                                    tooltip: {{
+                                        callbacks: {{
+                                            label: function(context) {{
+                                                if (context.dataset.label === 'Ingresos ($)') {{
+                                                    return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
+                                                }}
+                                                return context.dataset.label + ': ' + context.parsed.y.toLocaleString();
+                                            }}
+                                        }}
+                                    }}
+                                }},
+                                scales: {{
+                                    y: {{
+                                        type: 'linear',
+                                        display: true,
+                                        position: 'left',
+                                        title: {{ display: true, text: 'Altas' }}
+                                    }},
+                                    y1: {{
+                                        type: 'linear',
+                                        display: true,
+                                        position: 'right',
+                                        title: {{ display: true, text: 'Ingresos ($)' }},
+                                        grid: {{ drawOnChartArea: false }},
+                                        ticks: {{
+                                            callback: function(value) {{
+                                                return '$' + value.toLocaleString();
+                                            }}
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }});
+                    }});
+                </script>
+                '''
+                return chart_html
+
+            elif intencion == "aliado_top_producto" and producto:
                 res = self.get_top_aliado_por_producto(producto, mes)
                 if res:
                     return f'''
@@ -369,5 +453,6 @@ Pregunta: "{pregunta}"
             <li>¿Cuál es el producto más vendido en los últimos 3 meses?</li>
             <li>Comparativo: COS vs BRM en los últimos 3 meses</li>
             <li>Dame la proyección de cumplimiento este mes</li>
+            <li>Haz un graficado de comportamiento por producto de aliado COS</li>
         </ul>
         '''
