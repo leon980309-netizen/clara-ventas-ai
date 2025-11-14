@@ -8,7 +8,7 @@ import os
 
 from groq import Groq
 
-# Inicializa cliente de Groq (solo para interpretar preguntas)
+# Inicializa cliente de Groq
 groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 # Festivos de Colombia 2024-2025
@@ -234,7 +234,7 @@ class ClaraIA:
         html += '</tbody></table>'
         return html
 
-    # === INTERPRETACIÓN CON GROQ (SOLO LECTURA DE PREGUNTA) ===
+    # === INTERPRETACIÓN CON GROQ (MODELO ACTUALIZADO) ===
     def interpretar_pregunta(self, pregunta):
         prompt = f"""
 Eres un asistente analítico de ventas. Convierte la pregunta en JSON con:
@@ -251,7 +251,7 @@ Pregunta: "{pregunta}"
         try:
             chat_completion = groq_client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",  # ✅ MODELO ACTUAL Y SOPORTADO
                 temperature=0.1,
                 max_tokens=150
             )
@@ -260,7 +260,7 @@ Pregunta: "{pregunta}"
                 json_str = json_str.split("```")[1].split("```")[0]
             return json.loads(json_str)
         except Exception as e:
-            print(f"Error en Groq: {e}")
+            print(f"❌ Error en Groq: {e}")
             return {"intencion": "desconocida"}
 
     def ask(self, question):
