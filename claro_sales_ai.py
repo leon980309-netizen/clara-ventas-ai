@@ -101,7 +101,25 @@ class ClaraIA:
             current += timedelta(days=1)
         return dias
 
-    # === NUEVOS MÉTODOS ANALÍTICOS ===
+    # === CORRECCIÓN CLAVE: Búsqueda insensible para especialistas ===
+    def get_desempeno_por_especialista(self, nombre_usuario, mes=None):
+        if mes is None:
+            mes = self.get_current_month()
+        nombre_normalizado = nombre_usuario.strip().lower()
+        for nombre_real in self.especialistas:
+            if nombre_normalizado in nombre_real.lower() or nombre_real.lower() in nombre_normalizado:
+                aliados = self.especialistas[nombre_real]
+                df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
+                df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
+                df_f = df[df['ALIADO'].isin(aliados)]
+                resumen = df_f.groupby('ALIADO').agg({
+                    'ALTAS': 'sum',
+                    'INGRESOS': 'sum'
+                }).reset_index()
+                return resumen.to_dict(orient='records')
+        return None
+
+    # === Otros métodos analíticos ===
     def get_variacion_mes_a_mes(self, aliado, producto, mes1, mes2):
         df = self.sales_df.copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
@@ -161,22 +179,6 @@ class ClaraIA:
             'mes': mes
         }
 
-    def get_desempeno_por_especialista(self, nombre, mes=None):
-        if mes is None:
-            mes = self.get_current_month()
-        if nombre not in self.especialistas:
-            return None
-        aliados = self.especialistas[nombre]
-        df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
-        df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
-        df_f = df[df['ALIADO'].isin(aliados)]
-        resumen = df_f.groupby('ALIADO').agg({
-            'ALTAS': 'sum',
-            'INGRESOS': 'sum'
-        }).reset_index()
-        return resumen.to_dict(orient='records')
-
-    # === MÉTODOS EXISTENTES (resumidos) ===
     def get_top_aliado_por_producto(self, producto, mes=None):
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -414,7 +416,17 @@ Pregunta: "{pregunta}"
         mensaje_error = "<p>❌ No hay datos para esa consulta.</p>"
 
         try:
-            if intencion == "variacion_mes" and aliado and producto and mes1 and mes2:
+            if intencion == "especialista" and especialista:
+                res = self.get_desempeno_por_especialista(especialista)
+                if res:
+                    headers = ['Aliado', 'Altas', 'Ingresos ($)']
+                    rows = [[r['ALIADO'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in res]
+                    tabla = self._generate_html_table(headers, rows)
+                    return f"<h3>📊 Desempeño de aliados de <strong>{especialista}</strong></h3>{tabla}"
+                else:
+                    return f"<p>❌ No se encontró al especialista <strong>{especialista}</strong>.</p>"
+
+            elif intencion == "variacion_mes" and aliado and producto and mes1 and mes2:
                 res = self.get_variacion_mes_a_mes(aliado, producto, mes1, mes2)
                 return f'''
                 <div>
@@ -451,16 +463,6 @@ Pregunta: "{pregunta}"
                     return f"<p>🔥 El producto más vendido por <strong>{aliado}</strong> en {res['mes']} es <strong>{res['producto']}</strong> con {res['altas']:,} altas.</p>"
                 else:
                     return f"<p>❌ No hay datos para <strong>{aliado}</strong>.</p>"
-
-            elif intencion == "especialista" and especialista:
-                res = self.get_desempeno_por_especialista(especialista)
-                if res:
-                    headers = ['Aliado', 'Altas', 'Ingresos ($)']
-                    rows = [[r['ALIADO'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in res]
-                    tabla = self._generate_html_table(headers, rows)
-                    return f"<h3>📊 Desempeño de aliados de <strong>{especialista}</strong></h3>{tabla}"
-                else:
-                    return f"<p>❌ No se encontró al especialista <strong>{especialista}</strong>.</p>"
 
             elif intencion == "grafico_producto_aliado" and aliado:
                 df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
@@ -553,8 +555,9 @@ Pregunta: "{pregunta}"
         <ul style="padding-left:20px; margin:10px 0;">
             <li>¿Cumplimiento del aliado ATENTO?</li>
             <li>¿Qué aliado vendió más Adicionales este mes?</li>
-            <li>Ranking de vendedores por producto</li>
-            <li>Variación de móvil agosto vs julio en Millenium</li>
+            <li>¿Cuál es el producto más vendido por COS?</li>
+            <li>Ranking de vendedores</li>
+            <li>Variación de móvil agosto 2025 vs julio 2025 en Millenium</li>
             <li>Desempeño de aliados de Geovanny Ramirez</li>
             <li>Comportamiento total en los últimos 3 meses</li>
         </ul>
