@@ -10,7 +10,7 @@ URL_METAS = os.environ.get("URL_METAS", "https://drive.google.com/uc?export=down
 
 clara_ia = None
 try:
-    print("🔄 Inicializando Clara IA...")
+    print("🔄 Inicializando Clara IA (sin Groq)...")
     clara_ia = ClaraIA(URL_CONSOLIDADO, URL_METAS)
     print("✅ Clara IA lista.")
 except Exception as e:
