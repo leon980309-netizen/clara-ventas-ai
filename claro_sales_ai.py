@@ -4,7 +4,6 @@ from io import StringIO
 from datetime import datetime, timedelta
 import re
 import json
-import os
 
 # Festivos de Colombia 2024-2025
 CO_HOLIDAYS = {
@@ -14,7 +13,10 @@ CO_HOLIDAYS = {
     "2024-11-11", "2024-12-08", "2024-12-25",
     "2025-01-01", "2025-01-06", "2025-03-24", "2025-04-17", "2025-04-18",
     "2025-05-01", "2025-06-02", "2025-06-30", "2025-07-20", "2025-08-07",
-    "2025-08-18", "2025-10-13", "2025-11-03", "2025-11-17", "2025-12-08", "2025-12-25"
+    "2025-08-18", "2025-10-13", "2025-11-03", "2025-11-17", "2025-12-08", "2025-12-25",
+    "2026-01-01", "2026-01-06", "2026-03-23", "2026-04-02", "2026-04-03",
+    "2026-05-01", "2026-06-01", "2026-06-29", "2026-07-20", "2026-08-07",
+    "2026-08-17", "2026-10-12", "2026-11-02", "2026-11-16", "2026-12-08", "2026-12-25"
 }
 
 class ClaraIA:
@@ -98,7 +100,7 @@ class ClaraIA:
             current += timedelta(days=1)
         return dias
 
-    # === MÉTODOS ANALÍTICOS ===
+    # === MÉTODOS ANALÍTICOS (sin cambios) ===
     def get_desempeno_por_especialista(self, nombre_especialista, mes=None):
         if mes is None:
             mes = self.get_current_month()
@@ -237,197 +239,187 @@ class ClaraIA:
         html += '</tbody></table>'
         return html
 
-    def _generar_grafico_html(self, aliado, mes, resumen):
-        productos = [r['BASE'] for r in resumen]
-        altas = [int(r['ALTAS']) for r in resumen]
-        ingresos = [float(r['INGRESOS']) for r in resumen]
-        chart_id = f"chart_{aliado.lower()}"
+    # === NUEVOS MÉTODOS AUXILIARES PARA INTERPRETACIÓN DINÁMICA ===
+    def _extract_aliado(self, text):
+        for aliado in self.homologacion_aliados.values():
+            if aliado.lower() in text:
+                return aliado
+        for campana, aliado in self.homologacion_aliados.items():
+            if campana.lower() in text:
+                return aliado
+        return None
+
+    def _extract_producto(self, text):
+        if "fijo" in text:
+            return "fijo"
+        elif "móvil" in text or "movil" in text:
+            return "m"
+        else:
+            return None
+
+    def _extract_mes(self, text):
+        meses_nombres = {
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+            'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+            'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+        }
+        pattern = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(\d{4})"
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            mes_nombre = match.group(1).lower()
+            anio = match.group(2)
+            mes_num = meses_nombres.get(mes_nombre, "01")
+            return f"{anio}-{mes_num}"
+        return None
+
+    def _extract_dos_meses(self, text):
+        meses_nombres = {
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+            'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+            'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+        }
+        pattern = r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(\d{4}).*?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(\d{4})"
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            m1, a1, m2, a2 = match.groups()
+            mes1 = f"{a1}-{meses_nombres.get(m1.lower(), '01')}"
+            mes2 = f"{a2}-{meses_nombres.get(m2.lower(), '01')}"
+            return mes1, mes2
+        return None, None
+
+    # === MANEJADORES DE CONSULTAS ===
+    def _handle_variacion(self, text):
+        aliado = self._extract_aliado(text) or "MILLENIUM"
+        producto = self._extract_producto(text) or "m"
+        mes1, mes2 = self._extract_dos_meses(text)
+        if not mes1 or not mes2:
+            return "<p>❌ Por favor, indica dos meses completos (ej: 'agosto 2025 vs julio 2025').</p>"
+        res = self.get_variacion_mes_a_mes(aliado, producto, mes1, mes2)
+        if res['ventas1'] == 0 and res['ventas2'] == 0:
+            return f"<p>❌ No hay datos de ventas para '{producto}' en {aliado} en esos meses.</p>"
+        analisis = f"<p><strong>🔍 Análisis:</strong> La variación de <strong>{res['variacion_pct']:+.2f}%</strong> en {aliado} indica {'crecimiento' if res['variacion_pct'] > 0 else 'caída'} en ventas de {producto}.</p>"
         return f'''
-        <h3 style="color:#e60000;">📊 Comportamiento por producto - {aliado} en {mes}</h3>
-        <div style="height:300px; margin:15px 0;">
-            <canvas id="{chart_id}"></canvas>
-        </div>
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {{
-                const ctx = document.getElementById('{chart_id}').getContext('2d');
-                new Chart(ctx, {{
-                    type: 'bar',
-                     {{
-                        labels: {json.dumps(productos)},
-                        datasets: [
-                            {{
-                                label: 'Altas',
-                                 {json.dumps(altas)},
-                                backgroundColor: '#0078d4',
-                                yAxisID: 'y'
-                            }},
-                            {{
-                                label: 'Ingresos ($)',
-                                 {json.dumps(ingresos)},
-                                backgroundColor: '#e60000',
-                                yAxisID: 'y1'
-                            }}
-                        ]
-                    }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {{
-                            legend: {{ position: 'top' }},
-                            tooltip: {{
-                                callbacks: {{
-                                    label: function(context) {{
-                                        if (context.dataset.label === 'Ingresos ($)') {{
-                                            return context.dataset.label + ': $' + context.parsed.y.toLocaleString();
-                                        }}
-                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString();
-                                    }}
-                                }}
-                            }}
-                        }},
-                        scales: {{
-                            y: {{
-                                type: 'linear',
-                                display: true,
-                                position: 'left',
-                                title: {{ display: true, text: 'Altas' }}
-                            }},
-                            y1: {{
-                                type: 'linear',
-                                display: true,
-                                position: 'right',
-                                title: {{ display: true, text: 'Ingresos ($)' }},
-                                grid: {{ drawOnChartArea: false }},
-                                ticks: {{
-                                    callback: function(value) {{
-                                        return '$' + value.toLocaleString();
-                                    }}
-                                }}
-                            }}
-                        }}
-                    }}
-                }});
-            }});
-        </script>
+        <div><h3>📊 Variación {producto} - {aliado}</h3>
+        <p><strong>{res['mes1']}</strong>: {res['ventas1']:,} altas</p>
+        <p><strong>{res['mes2']}</strong>: {res['ventas2']:,} altas</p>
+        <p><strong>Variación:</strong> {res['variacion_pct']:+.2f}%</p>{analisis}</div>
         '''
 
-    # === MÉTODO ASK SIN GROQ ===
-    def ask(self, question):
-        question_lower = question.lower().strip()
-        mes = self.get_current_month()
+    def _handle_cumplimiento(self, text):
+        aliado = self._extract_aliado(text)
+        mes = self._extract_mes(text) or self.get_current_month()
+        if not aliado:
+            return "<p>❌ Indica un aliado (ej: ATENTO, COS, BRM).</p>"
+        cumplimiento = self.get_cumplimiento_detalle(aliado=aliado, mes=mes)
+        if not cumplimiento or all(item['ALTAS_REALES'] == 0 and item['META_ALTAS'] == 0 for item in cumplimiento):
+            return f"<p>❌ No hay datos de cumplimiento para {aliado} en {mes}.</p>"
+        item = cumplimiento[0]
+        analisis = f"<p><strong>🔍 Análisis:</strong> {aliado} tiene <strong>{item['CUMPLIMIENTO_ALTAS_%']}%</strong> en altas y <strong>{item['CUMPLIMIENTO_INGRESOS_%']}%</strong> en ingresos.</p>"
+        return f'''
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+            <h3 style="color:#e60000;">🎯 Cumplimiento de {aliado} en {mes}</h3>
+            <p><strong>Altas:</strong> {int(item['ALTAS_REALES']):,} / {int(item['META_ALTAS']):,} → <strong>{item['CUMPLIMIENTO_ALTAS_%']}%</strong></p>
+            <p><strong>Ingresos:</strong> ${float(item['INGRESOS_REALES']):,.0f} / ${float(item['META_INGRESOS']):,.0f} → <strong>{item['CUMPLIMIENTO_INGRESOS_%']}%</strong></p>
+            {analisis}
+        </div>
+        '''
 
-        # 1. Desempeño de especialista
-        if "geovanny ramirez" in question_lower or "geovany ramirez" in question_lower:
-            res = self.get_desempeno_por_especialista("Geovanny Ramirez", mes)
-            if res:
-                total_altas = sum(r['ALTAS'] for r in res)
-                total_ingresos = sum(r['INGRESOS'] for r in res)
-                analisis = f"<p><strong>🔍 Análisis:</strong> Los aliados de Geovanny Ramirez generan <strong>{total_altas:,} altas</strong> y <strong>${total_ingresos:,.0f} en ingresos</strong>. ATENTO es el mayor contribuyente.</p>"
-                headers = ['Aliado', 'Altas', 'Ingresos ($)']
-                rows = [[r['ALIADO'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in res]
-                tabla = self._generate_html_table(headers, rows)
-                return f"<h3>📊 Desempeño de aliados de <strong>Geovanny Ramirez</strong></h3>{tabla}{analisis}"
-            else:
-                return "<p>❌ No hay datos para los aliados de Geovanny Ramirez este mes.</p>"
+    def _handle_ranking(self, text):
+        producto = self._extract_producto(text)
+        mes = self._extract_mes(text) or self.get_current_month()
+        ranking = self.get_ranking_vendedores_por_producto(producto=producto, mes=mes)
+        if not ranking:
+            return "<p>❌ No hay datos para el ranking solicitado.</p>"
+        top_aliado = ranking[0]['ALIADO']
+        analisis = f"<p><strong>🔍 Análisis:</strong> <strong>{top_aliado}</strong> lidera con <strong>{int(ranking[0]['ALTAS']):,} altas</strong>.</p>"
+        headers = ['Aliado', 'Campaña', 'Altas', 'Ingresos ($)']
+        rows = [[r['ALIADO'], r['CAMPAÑA FINAL'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in ranking[:10]]
+        tabla = self._generate_html_table(headers, rows)
+        prod_text = f" para {producto}" if producto else ""
+        return f"<h3>🏆 Ranking de vendedores{prod_text} en {mes}</h3>{tabla}{analisis}"
 
-        # 2. Producto más vendido por aliado
-        if "producto más vendido" in question_lower or "producto mas vendido" in question_lower:
-            for aliado in ['COS', 'ATENTO', 'BRM', 'ABAI', 'MILLENIUM', 'NEXA', 'AQI', 'IBR', 'LATCOM', 'ALMACONTACT']:
-                if aliado.lower() in question_lower:
-                    res = self.get_producto_mas_vendido_por_aliado(aliado, mes)
-                    if res:
-                        analisis = f"<p><strong>🔍 Análisis:</strong> <strong>{res['producto']}</strong> es el producto estrella de <strong>{aliado}</strong>, con <strong>{res['altas']:,} altas</strong> en {res['mes']}.</p>"
-                        return f"<p>🔥 El producto más vendido por <strong>{aliado}</strong> en {res['mes']} es <strong>{res['producto']}</strong> con {res['altas']:,} altas.</p>{analisis}"
-            return "<p>❌ No se reconoció el aliado. Prueba con: COS, ATENTO, BRM, etc.</p>"
+    def _handle_comportamiento_total(self):
+        datos = self.get_comportamiento_total_operacion()
+        if not datos:
+            return "<p>❌ No hay datos para los últimos 3 meses.</p>"
+        total_ingresos = sum(d['INGRESOS'] for d in datos)
+        analisis = f"<p><strong>🔍 Análisis:</strong> La operación acumula <strong>${total_ingresos:,.0f} en ingresos</strong> en los últimos 3 meses.</p>"
+        headers = ['Mes', 'Altas', 'Ingresos ($)']
+        rows = [[d['Mes_Año'], f"{int(d['ALTAS']):,}", f"${float(d['INGRESOS']):,.0f}"] for d in datos]
+        tabla = self._generate_html_table(headers, rows)
+        return f"<h3>📈 Comportamiento total - Últimos 3 meses</h3>{tabla}{analisis}"
 
-        # 3. Comportamiento total últimos 3 meses
-        if "comportamiento total" in question_lower or "totales de la operacion" in question_lower:
-            datos = self.get_comportamiento_total_operacion()
-            if datos:
-                total_ingresos = sum(d['INGRESOS'] for d in datos)
-                analisis = f"<p><strong>🔍 Análisis:</strong> La operación acumula <strong>${total_ingresos:,.0f} en ingresos</strong> en los últimos 3 meses, con una tendencia a la baja en altas desde septiembre.</p>"
-                headers = ['Mes', 'Altas', 'Ingresos ($)']
-                rows = [[d['Mes_Año'], f"{int(d['ALTAS']):,}", f"${float(d['INGRESOS']):,.0f}"] for d in datos]
-                tabla = self._generate_html_table(headers, rows)
-                return f"<h3>📈 Comportamiento total - Últimos 3 meses</h3>{tabla}{analisis}"
-            else:
-                return "<p>❌ No hay datos para el análisis de los últimos 3 meses.</p>"
+    def _handle_producto_mas_vendido(self, text):
+        aliado = self._extract_aliado(text)
+        mes = self._extract_mes(text) or self.get_current_month()
+        if not aliado:
+            return "<p>❌ Indica un aliado (ej: COS, ATENTO).</p>"
+        res = self.get_producto_mas_vendido_por_aliado(aliado, mes)
+        if not res:
+            return f"<p>❌ No hay ventas registradas para {aliado} en {mes}.</p>"
+        analisis = f"<p><strong>🔍 Análisis:</strong> <strong>{res['producto']}</strong> es el producto estrella de <strong>{aliado}</strong>, con <strong>{res['altas']:,} altas</strong>.</p>"
+        return f"<p>🔥 El producto más vendido por <strong>{aliado}</strong> en {res['mes']} es <strong>{res['producto']}</strong> con {res['altas']:,} altas.</p>{analisis}"
 
-        # 4. Ranking de vendedores
-        if "ranking de vendedores" in question_lower or "mayores vendedores" in question_lower:
-            ranking = self.get_ranking_vendedores_por_producto()
-            if ranking:
-                top_aliado = ranking[0]['ALIADO']
-                analisis = f"<p><strong>🔍 Análisis:</strong> <strong>{top_aliado}</strong> lidera el ranking con <strong>{int(ranking[0]['ALTAS']):,} altas</strong>. Los primeros 5 puestos están dominados por ATENTO.</p>"
-                headers = ['Aliado', 'Campaña', 'Altas', 'Ingresos ($)']
-                rows = [[r['ALIADO'], r['CAMPAÑA FINAL'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in ranking[:10]]
-                tabla = self._generate_html_table(headers, rows)
-                return f"<h3>🏆 Ranking de vendedores</h3>{tabla}{analisis}"
-            else:
-                return "<p>❌ No hay datos para el ranking.</p>"
+    def _res_desempeno_especialista(self, nombre, mes):
+        res = self.get_desempeno_por_especialista(nombre, mes)
+        if not res:
+            return f"<p>❌ No hay datos para los aliados de {nombre} en {mes}.</p>"
+        total_altas = sum(r['ALTAS'] for r in res)
+        total_ingresos = sum(r['INGRESOS'] for r in res)
+        analisis = f"<p><strong>🔍 Análisis:</strong> Los aliados de {nombre} generan <strong>{total_altas:,} altas</strong> y <strong>${total_ingresos:,.0f} en ingresos</strong>.</p>"
+        headers = ['Aliado', 'Altas', 'Ingresos ($)']
+        rows = [[r['ALIADO'], f"{int(r['ALTAS']):,}", f"${float(r['INGRESOS']):,.0f}"] for r in res]
+        tabla = self._generate_html_table(headers, rows)
+        return f"<h3>📊 Desempeño de aliados de <strong>{nombre}</strong> en {mes}</h3>{tabla}{analisis}"
 
-        # 5. Variación mes a mes
-        if "variación" in question_lower and "vs" in question_lower:
-            # Detectar aliado (simplificado)
-            aliado = None
-            for a in ['MILLENIUM', 'ATENTO', 'COS', 'BRM']:
-                if a.lower() in question_lower:
-                    aliado = a
-                    break
-            # Detectar producto
-            producto = "m"  # móvil por defecto
-            if "fijo" in question_lower:
-                producto = "fijo"
-            # Detectar meses
-            if "agosto 2025" in question_lower and "julio 2025" in question_lower:
-                res = self.get_variacion_mes_a_mes(aliado or "MILLENIUM", producto, "2025-08", "2025-07")
-                analisis = f"<p><strong>🔍 Análisis:</strong> La variación de <strong>+{res['variacion_pct']:.2f}%</strong> en {aliado or 'MILLENIUM'} indica un crecimiento sostenido en ventas de móvil.</p>"
-                return f'''<div><h3>📊 Variación Móvil - {aliado or 'MILLENIUM'}</h3>
-                <p><strong>{res['mes1']}</strong>: {res['ventas1']:,} altas</p>
-                <p><strong>{res['mes2']}</strong>: {res['ventas2']:,} altas</p>
-                <p><strong>Variación:</strong> {res['variacion_pct']:+.2f}%</p>{analisis}</div>'''
+    def _res_desempeno_aliado(self, aliado, mes):
+        res = self.get_desempeno_aliado(aliado, mes)
+        if not res:
+            return f"<p>❌ No hay datos para {aliado} en {mes}.</p>"
+        analisis = f"<p><strong>🔍 Análisis:</strong> {aliado} muestra un desempeño sólido con <strong>{res['altas']:,} altas</strong> y <strong>${res['ingresos']:,.0f} en ingresos</strong>.</p>"
+        return f'''
+        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
+            <h3 style="color:#e60000;">📊 {res['aliado']} en {res['mes']}</h3>
+            <p><strong>Altas:</strong> {res['altas']:,}</p>
+            <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
+            {analisis}
+        </div>
+        '''
 
-        # 6. Cumplimiento
-        if "cumplimiento" in question_lower:
-            for aliado in ['ATENTO', 'COS', 'BRM']:
-                if aliado.lower() in question_lower:
-                    cumplimiento = self.get_cumplimiento_detalle(aliado=aliado, mes=mes)
-                    if cumplimiento:
-                        item = cumplimiento[0]
-                        analisis = f"<p><strong>🔍 Análisis:</strong> {aliado} supera la meta en altas (<strong>{item['CUMPLIMIENTO_ALTAS_%']}%</strong>) pero tiene oportunidad en ingresos (<strong>{item['CUMPLIMIENTO_INGRESOS_%']}%</strong>).</p>"
-                        return f'''
-                        <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                            <h3 style="color:#e60000;">🎯 Cumplimiento de {aliado} en {mes}</h3>
-                            <p><strong>Altas:</strong> {int(item['ALTAS_REALES']):,} / {int(item['META_ALTAS']):,} → <strong>{item['CUMPLIMIENTO_ALTAS_%']}%</strong></p>
-                            <p><strong>Ingresos:</strong> ${float(item['INGRESOS_REALES']):,.0f} / ${float(item['META_INGRESOS']):,.0f} → <strong>{item['CUMPLIMIENTO_INGRESOS_%']}%</strong></p>
-                            {analisis}
-                        </div>
-                        '''
-
-        # 7. Desempeño de aliado
-        for aliado in ['ATENTO', 'COS', 'BRM', 'ABAI', 'MILLENIUM']:
-            if aliado.lower() in question_lower and ("desempeño" in question_lower or "desempeno" in question_lower):
-                res = self.get_desempeno_aliado(aliado, mes)
-                if res:
-                    analisis = f"<p><strong>🔍 Análisis:</strong> {aliado} muestra un desempeño sólido con <strong>{res['altas']:,} altas</strong> y <strong>${res['ingresos']:,.0f} en ingresos</strong> en {mes}.</p>"
-                    return f'''
-                    <div style="background:#f9f9f9; padding:15px; border-radius:8px; margin:10px 0;">
-                        <h3 style="color:#e60000;">📊 {res['aliado']} en {res['mes']}</h3>
-                        <p><strong>Altas:</strong> {res['altas']:,}</p>
-                        <p><strong>Ingresos:</strong> ${res['ingresos']:,.0f}</p>
-                        {analisis}
-                    </div>
-                    '''
-
-        # Mensaje de ayuda
+    def _help_message(self):
         return '''
-        <p>🤖 Puedes preguntarme:</p>
+        <p>🤖 Puedes preguntarme de forma flexible, por ejemplo:</p>
         <ul style="padding-left:20px; margin:10px 0;">
-            <li>Desempeño de aliados de Geovanny Ramirez</li>
-            <li>¿Cuál es el producto más vendido por COS?</li>
-            <li>Comportamiento total en los últimos 3 meses</li>
-            <li>Ranking de vendedores</li>
-            <li>Variación de móvil agosto 2025 vs julio 2025 en Millenium</li>
-            <li>Cumplimiento del aliado ATENTO</li>
+            <li>“Variación de móvil en ATENTO entre septiembre 2025 y agosto 2025”</li>
+            <li>“Cumplimiento de COS en octubre 2024”</li>
+            <li>“Ranking de vendedores para fijo en noviembre 2025”</li>
+            <li>“Producto más vendido por BRM en diciembre 2025”</li>
+            <li>“Desempeño de Geovanny Ramirez en enero 2026”</li>
         </ul>
         '''
+
+    # === MÉTODO ASK DINÁMICO (REEMPLAZA EL ANTERIOR) ===
+    def ask(self, question):
+        question_clean = question.lower().strip()
+
+        # Detectar tipo de consulta
+        if any(kw in question_clean for kw in ["variacion", "variación", "cambio", "diferencia"]):
+            return self._handle_variacion(question_clean)
+        elif any(kw in question_clean for kw in ["cumplimiento", "meta", "objetivo"]):
+            return self._handle_cumplimiento(question_clean)
+        elif any(kw in question_clean for kw in ["ranking", "top", "mayores vendedores", "mejores vendedores"]):
+            return self._handle_ranking(question_clean)
+        elif any(kw in question_clean for kw in ["comportamiento total", "totales", "últimos 3 meses", "ultimos 3 meses", "últimos tres meses"]):
+            return self._handle_comportamiento_total()
+        elif any(kw in question_clean for kw in ["producto más vendido", "producto mas vendido", "estrella", "más vendido"]):
+            return self._handle_producto_mas_vendido(question_clean)
+        elif "geovanny ramirez" in question_clean or "geovany ramirez" in question_clean:
+            mes = self._extract_mes(question_clean) or self.get_current_month()
+            return self._res_desempeno_especialista("Geovanny Ramirez", mes)
+        elif any(kw in question_clean for kw in ["desempeño", "desempeno", "rendimiento"]) and any(a.lower() in question_clean for a in self.homologacion_aliados.values()):
+            aliado = self._extract_aliado(question_clean)
+            mes = self._extract_mes(question_clean) or self.get_current_month()
+            if aliado:
+                return self._res_desempeno_aliado(aliado, mes)
+
+        return self._help_message()
