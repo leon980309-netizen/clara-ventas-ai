@@ -1,16 +1,15 @@
 from flask import Flask, request, jsonify, render_template
 import os
-
 from claro_sales_ai import ClaraIA
 
 app = Flask(__name__)
 
-URL_CONSOLIDADO = os.environ.get("URL_CONSOLIDADO", "https://drive.google.com/uc?export=download&id=1AA2W0IfqZVPH69yveeTdAYCu30GOvqSK")
-URL_METAS = os.environ.get("URL_METAS", "https://drive.google.com/uc?export=download&id=1Nc-dpGnbFT3qZ2qpYZGZoL0IFTgku4Fc")
+URL_CONSOLIDADO = os.environ.get("URL_CONSOLIDADO", "https://drive.google.com/uc?export=download&id=1AA2W0IfqZVPH69yveeTdAYCu30GOvqSK").strip()
+URL_METAS = os.environ.get("URL_METAS", "https://drive.google.com/uc?export=download&id=1Nc-dpGnbFT3qZ2qpYZGZoL0IFTgku4Fc").strip()
 
 clara_ia = None
 try:
-    print("🔄 Inicializando Clara IA (sin Groq)...")
+    print("🔄 Inicializando Clara IA...")
     clara_ia = ClaraIA(URL_CONSOLIDADO, URL_METAS)
     print("✅ Clara IA lista.")
 except Exception as e:
@@ -31,10 +30,13 @@ def chat():
         return jsonify({"content": "⚠️ Escribe una pregunta."}), 400
 
     try:
+        print(f"👤 Usuario: {msg}")
         response = clara_ia.ask(msg)
+        print(f"🤖 Clara: {response[:100]}...")
         return jsonify({"content": response})
     except Exception as e:
-        return jsonify({"content": f"❌ Error: {str(e)}"}), 500
+        print(f"❌ Error en ask(): {e}")
+        return jsonify({"content": f"❌ Error interno: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
