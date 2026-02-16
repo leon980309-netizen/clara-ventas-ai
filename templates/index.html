@@ -7,140 +7,179 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        :root {
+            --bg-color: #e1e1e1;
+            --primary-color: #b61a23;
+            --secondary-color: #0097a9;
+            --white: #ffffff;
+            --text-dark: #333333;
+            --text-light: #666666;
+            --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f5f5;
+            font-family: 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
             height: 100vh;
             overflow: hidden;
             display: flex;
             flex-direction: column;
         }
         .header {
-            background-color: #e60000;
-            color: white;
-            padding: 10px 20px;
-            font-weight: bold;
+            background: linear-gradient(135deg, var(--primary-color), #901219);
+            color: var(--white);
+            padding: 0 20px;
+            height: 70px;
+            font-weight: 600;
             font-size: 20px;
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            position: relative;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 15px;
+            gap: 20px;
+            box-shadow: 0 4px 15px rgba(182, 26, 35, 0.3);
+            position: relative;
+            z-index: 100;
         }
         .toggle-btn {
-            background: white;
-            color: #e60000;
-            width: 36px;
-            height: 36px;
-            border: 2px solid #e60000;
-            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--white);
+            width: 45px;
+            height: 45px;
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-            z-index: 1000;
-            flex-shrink: 0;
+            transition: all 0.3s ease;
+            font-size: 18px;
         }
         .toggle-btn:hover {
-            transform: scale(1.1);
+            background: var(--white);
+            color: var(--primary-color);
+            transform: translateY(-2px);
         }
         .main-container {
             display: flex;
             flex: 1;
             overflow: hidden;
-            margin: 0;
+            padding: 30px;
+            position: relative;
         }
         .chat-container {
             flex: 1;
             display: flex;
             flex-direction: column;
-            background-color: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
-            margin: 20px;
-            border-radius: 12px;
+            background-color: var(--white);
+            border-radius: 20px;
+            box-shadow: var(--shadow-soft);
             overflow: hidden;
+            transition: all 0.4s ease;
+            position: relative;
+            z-index: 10;
         }
         .chat-header {
-            padding: 15px;
-            background-color: #e60000;
-            color: white;
-            font-weight: bold;
-            text-align: center;
-            font-size: 16px;
+            padding: 20px 30px;
+            background-color: rgba(240, 240, 240, 0.5);
+            border-bottom: 1px solid #eee;
+            color: var(--text-dark);
+            font-weight: 700;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
+        .chat-header i { color: var(--secondary-color); }
         .chat-messages {
             flex: 1;
-            padding: 20px;
+            padding: 30px;
             overflow-y: auto;
-            background-color: #fafafa;
+            background-color: #fcfcfc;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 20px;
+            scroll-behavior: smooth;
         }
+        .chat-messages::-webkit-scrollbar { width: 6px; }
+        .chat-messages::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 3px; }
         .message-bubble {
-            max-width: 85%;
-            padding: 14px 18px;
-            border-radius: 18px;
-            font-size: 14px;
-            line-height: 1.5;
+            max-width: 80%;
+            padding: 16px 22px;
+            border-radius: 20px;
+            font-size: 15px;
+            line-height: 1.6;
             word-wrap: break-word;
+            position: relative;
+            animation: fadeIn 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .user-message {
             align-self: flex-end;
-            background-color: #0078d4;
-            color: white;
+            background: linear-gradient(135deg, var(--secondary-color), #007d8c);
+            color: var(--white);
             border-bottom-right-radius: 4px;
         }
         .bot-message {
             align-self: flex-start;
-            background-color: #e9e9eb;
-            color: #333;
+            background-color: var(--white);
+            color: var(--text-dark);
+            border: 1px solid #eee;
             border-bottom-left-radius: 4px;
         }
         .chat-input {
             display: flex;
-            padding: 15px;
-            background-color: white;
-            border-top: 1px solid #ddd;
+            padding: 20px 30px;
+            background-color: var(--white);
+            border-top: 1px solid #f0f0f0;
+            gap: 15px;
         }
         .chat-input input {
             flex: 1;
-            padding: 12px 18px;
-            border: 1px solid #ccc;
-            border-radius: 25px;
+            padding: 15px 25px;
+            border: 2px solid #eee;
+            background-color: #fafafa;
+            border-radius: 50px;
             outline: none;
-            font-size: 14px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            color: var(--text-dark);
+        }
+        .chat-input input:focus {
+            border-color: var(--secondary-color);
+            background-color: var(--white);
+            box-shadow: 0 0 0 4px rgba(0, 151, 169, 0.1);
         }
         .chat-input button {
-            margin-left: 12px;
-            padding: 12px 22px;
-            background-color: #e60000;
-            color: white;
+            padding: 0 30px;
+            background-color: var(--primary-color);
+            color: var(--white);
             border: none;
-            border-radius: 25px;
+            border-radius: 50px;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(182, 26, 35, 0.3);
         }
         .chat-input button:hover {
-            background-color: #c00;
+            background-color: #901219;
+            transform: translateY(-2px);
         }
-
-        /* Power BI overlay */
         .powerbi-overlay {
             position: fixed;
-            top: 60px;
+            top: 70px;
             left: 0;
             width: 0;
-            height: calc(100vh - 60px);
-            background: white;
-            box-shadow: 0 0 20px rgba(0,0,0,0.3);
-            z-index: 999;
+            height: calc(100vh - 70px);
+            background: var(--white);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.1);
+            z-index: 99;
             overflow: hidden;
-            transition: width 0.4s ease;
+            transition: width 0.5s cubic-bezier(0.77, 0, 0.175, 1);
         }
         .powerbi-overlay iframe {
             width: 100%;
@@ -149,43 +188,54 @@
         }
         body.expanded .powerbi-overlay {
             width: 100%;
+            z-index: 200;
+        }
+        body.expanded .chat-container {
+            transform: scale(0.95);
+            opacity: 0.5;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="toggle-btn" id="toggle-btn">
-            <i class="fas fa-chart-line"></i>
+        <div class="toggle-btn" id="toggle-btn" title="Ver Dashboard Completo">
+            <i class="fas fa-chart-pie"></i>
         </div>
-        Clara - Asistente Inteligente de Ventas
+        Clara <span style="font-weight: 300; opacity: 0.8;">| Asistente Inteligente</span>
     </div>
 
     <div class="main-container">
         <div class="chat-container">
-            <div class="chat-header">💬 Chat con Clara IA</div>
+            <div class="chat-header">
+                <i class="fas fa-robot"></i> Chat con Clara IA
+            </div>
             <div class="chat-messages" id="chat-messages">
                 <div class="message-bubble bot-message">
-                    🤖 ¡Hola! Soy Clara, tu asistente inteligente de ventas.<br><br>
-                    Puedes preguntarme:<br>
-                    • ¿Cumplimiento del aliado ATENTO?<br>
-                    • ¿Qué aliado vendió más Adicionales este mes?<br>
-                    • Ranking de vendedores por producto<br>
-                    • Variación de móvil agosto vs julio en Millenium<br>
-                    • Desempeño de aliados de Geovanny Ramirez<br>
-                    • Comportamiento total en los últimos 3 meses<br><br>
-                    ¡Estoy aquí para ayudarte!
+                    👋 ¡Hola! Soy Clara, tu asistente inteligente de ventas.<br><br>
+                    Estoy lista para analizar tus datos. Puedes preguntarme sobre:
+                    <ul style="margin-top:10px; margin-left: 20px; color: #555;">
+                        <li>Cumplimiento de cualquier aliado</li>
+                        <li>📊 Brechas por aliado, producto o campaña</li>
+                        <li>📈 Comportamiento con gráficas</li>
+                        <li>Ranking de vendedores</li>
+                        <li>Variación mes a mes</li>
+                        <li>Producto más vendido</li>
+                    </ul>
                 </div>
             </div>
             <div class="chat-input">
-                <input type="text" id="user-input" placeholder="Escribe tu pregunta..." autocomplete="off" />
-                <button onclick="sendMessage()">Enviar</button>
+                <input type="text" id="user-input" placeholder="Escribe tu pregunta aquí..." autocomplete="off" />
+                <button onclick="sendMessage()">
+                    <i class="fas fa-paper-plane"></i> Enviar
+                </button>
             </div>
         </div>
 
         <!-- Power BI embebido -->
         <div class="powerbi-overlay" id="powerbi-overlay">
             <iframe
-                title="Informe Ventas - copia (2)"
+                title="Informe Ventas"
                 src="https://app.powerbi.com/view?r=eyJrIjoiNmNlODEzNTktYTVhOC00MmJjLTg4ZGItOTI2NTA4ZjUwY2Q1IiwidCI6ImI0MTE2ZGE0LTBlN2QtNGEyNy1hZDI5LTJiY2RiZjM2NGMzNCIsImMiOjR9"
                 frameborder="0"
                 allowFullScreen="true">
@@ -194,11 +244,72 @@
     </div>
 
     <script>
+        // === CONFIGURACIÓN GLOBAL ===
+        const API_URL = '/chat';
+        
+        // 🔥 COLA DE INICIALIZACIÓN DE GRÁFICAS
+        window.chartQueue = window.chartQueue || [];
+        window.chartInstances = window.chartInstances || {};
+        
+        // Verificar que Chart.js esté cargado
+        console.log('🔍 Chart.js disponible:', typeof Chart !== 'undefined');
+        
+        // 🔥 FUNCIÓN PARA INICIALIZAR GRÁFICA DESDE LA COLA
+        window.initChartFromQueue = function(chartId, chartConfig) {
+            console.log('📊 Intentando inicializar gráfica:', chartId);
+            
+            if (typeof Chart === 'undefined') {
+                console.warn('⚠️ Chart.js no está cargado, reintentando en 200ms...');
+                setTimeout(() => window.initChartFromQueue(chartId, chartConfig), 200);
+                return;
+            }
+            
+            const canvas = document.getElementById(chartId);
+            if (!canvas) {
+                console.warn('⚠️ Canvas no encontrado:', chartId, 'reintentando en 200ms...');
+                setTimeout(() => window.initChartFromQueue(chartId, chartConfig), 200);
+                return;
+            }
+            
+            // Destruir instancia previa si existe
+            if (window.chartInstances[chartId]) {
+                window.chartInstances[chartId].destroy();
+            }
+            
+            try {
+                const ctx = canvas.getContext('2d');
+                window.chartInstances[chartId] = new Chart(ctx, chartConfig);
+                console.log('✅ Gráfica inicializada correctamente:', chartId);
+            } catch (error) {
+                console.error('❌ Error al crear gráfica:', chartId, error);
+            }
+        };
+        
+        // 🔥 PROCESAR COLA DE GRÁFICAS
+        window.processChartQueue = function() {
+            console.log('🔄 Procesando cola de gráficas:', window.chartQueue.length, 'gráficas pendientes');
+            while (window.chartQueue.length > 0) {
+                const { chartId, chartConfig } = window.chartQueue.shift();
+                window.initChartFromQueue(chartId, chartConfig);
+            }
+        };
+        
+        // Procesar cola cada 500ms
+        setInterval(window.processChartQueue, 500);
+        
         const toggleBtn = document.getElementById('toggle-btn');
         const body = document.body;
 
         toggleBtn.addEventListener('click', () => {
             body.classList.toggle('expanded');
+            const icon = toggleBtn.querySelector('i');
+            if(body.classList.contains('expanded')){
+                icon.classList.remove('fa-chart-pie');
+                icon.classList.add('fa-times');
+            } else {
+                icon.classList.remove('fa-times');
+                icon.classList.add('fa-chart-pie');
+            }
         });
 
         function appendMessage(content, isUser = false) {
@@ -207,26 +318,29 @@
             messageDiv.classList.add('message-bubble');
             messageDiv.classList.add(isUser ? 'user-message' : 'bot-message');
             messageDiv.innerHTML = content;
-
-            if (!isUser) {
-                setTimeout(() => {
-                    messageDiv.querySelectorAll('script').forEach(oldScript => {
-                        const newScript = document.createElement('script');
-                        if (oldScript.src) {
-                            newScript.src = oldScript.src;
-                        } else {
-                            newScript.textContent = oldScript.textContent;
-                        }
-                        document.head.appendChild(newScript);
-                        document.head.removeChild(newScript);
-                    });
-                }, 100);
-            }
-
             messagesDiv.appendChild(messageDiv);
+            
+            // 🔥 BUSCAR Y EJECUTAR CONFIGURACIONES DE GRÁFICAS EN EL HTML INSERTADO
+            setTimeout(() => {
+                const chartConfigs = messageDiv.querySelectorAll('script[type="chart-config"]');
+                chartConfigs.forEach(script => {
+                    try {
+                        const config = JSON.parse(script.textContent);
+                        console.log('📊 Configuración de gráfica encontrada:', config.chartId);
+                        window.chartQueue.push({
+                            chartId: config.chartId,
+                            chartConfig: config.config
+                        });
+                    } catch (error) {
+                        console.error('❌ Error al parsear configuración de gráfica:', error);
+                    }
+                });
+            }, 100);
+            
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
+        // === FUNCIÓN PRINCIPAL DE ENVÍO ===
         async function sendMessage() {
             const input = document.getElementById('user-input');
             const message = input.value.trim();
@@ -237,32 +351,52 @@
 
             const thinkingDiv = document.createElement('div');
             thinkingDiv.className = 'message-bubble bot-message';
-            thinkingDiv.innerHTML = '<i class="fas fa-brain" style="color:#e60000"></i> Clara está analizando los datos...';
+            thinkingDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="color:#b61a23"></i> Clara está analizando...';
             document.getElementById('chat-messages').appendChild(thinkingDiv);
             thinkingDiv.scrollIntoView();
 
             try {
-                const response = await fetch('/chat', {
+                console.log('📤 Enviando a backend:', message);
+                
+                const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message })
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
                 });
 
-                const data = await response.json();
-                const indicator = document.querySelector('.message-bubble.bot-message:last-child');
-                if (indicator && indicator.textContent.includes('analizando')) {
-                    indicator.remove();
+                console.log('📥 Respuesta HTTP:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
                 }
+
+                const data = await response.json();
+                console.log('📦 Datos recibidos:', data);
+                
+                const indicators = document.querySelectorAll('.message-bubble.bot-message');
+                indicators.forEach(ind => {
+                    if (ind.innerHTML.includes('fa-spin')) ind.remove();
+                });
 
                 if (data.content) {
                     appendMessage(data.content, false);
                 } else {
-                    appendMessage("❌ Lo siento, ocurrió un error.", false);
+                    appendMessage("❌ Lo siento, no pude generar una respuesta.", false);
                 }
+                
             } catch (error) {
-                const indicator = document.querySelector('.message-bubble.bot-message:last-child');
-                if (indicator) indicator.remove();
-                appendMessage("⚠️ No se pudo conectar con el servidor.", false);
+                console.error('❌ ERROR DETALLADO:', error);
+                
+                const indicators = document.querySelectorAll('.message-bubble.bot-message');
+                indicators.forEach(ind => {
+                    if (ind.innerHTML.includes('fa-spin')) ind.remove();
+                });
+                
+                appendMessage(`⚠️ <strong>Error de conexión:</strong><br><small>${error.message}</small>`, false);
             }
         }
 
@@ -274,6 +408,8 @@
 
         window.onload = function() {
             document.getElementById('user-input').focus();
+            console.log('✅ Chat listo. Backend:', API_URL);
+            console.log('✅ Chart.js disponible:', typeof Chart !== 'undefined');
         };
     </script>
 </body>
