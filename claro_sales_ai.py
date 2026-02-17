@@ -48,6 +48,18 @@ class ClaraIA:
             'Geovanny Ramirez': ['NEXA', 'ABAI', 'ATENTO']
         }
         
+        # 🔥 GRUPOS DE PRODUCTOS COMPUESTOS
+        self.product_groups = {
+            # Pospago = suma de estos 3 productos
+            "pospago": ["Migraciones", "Portabilidad Pospago", "Línea Nueva"],
+            "móvil": ["Migraciones", "Portabilidad Pospago", "Línea Nueva"],
+            "movil": ["Migraciones", "Portabilidad Pospago", "Línea Nueva"],
+            "m": ["Migraciones", "Portabilidad Pospago", "Línea Nueva"],
+            
+            # Puedes agregar más grupos aquí en el futuro
+            # "fijo": ["Línea Fija", "Internet Hogar", "TV Cable"],
+        }
+        
         self.intents = {
             'variacion': [r'variacion', r'variación', r'cambio', r'diferencia', r'comparar.*vs', r'vs.*', r'crecimiento', r'caida', r'caída'],
             'cumplimiento': [r'cumplimiento', r'meta', r'objetivo', r'porcentaje', r'cuanto falta', r'progreso'],
@@ -68,6 +80,7 @@ class ClaraIA:
         print(f"🔍 Aliados únicos encontrados: {len(self.aliados_unicos)}")
         print(f"🔍 Campañas únicas encontradas: {len(self.campanas_unicas)}")
         print(f"🔍 Productos únicos encontrados: {len(self.productos_unicos)}")
+        print(f"🔥 Grupos de productos configurados: {list(self.product_groups.keys())}")
 
     def _indexar_datos_dinamicos(self):
         self.aliados_unicos = set()
@@ -161,27 +174,66 @@ class ClaraIA:
         return None
 
     def _extract_producto(self, text):
+        """🔥 Extrae producto: keywords + grupos compuestos + búsqueda en datos reales"""
         text_lower = text.lower()
+        
+        # 1. 🔥 Primero verificar si es un GRUPO DE PRODUCTOS (ej: pospago, móvil)
+        for group_name in self.product_groups.keys():
+            if group_name in text_lower:
+                return group_name  # Retorna el nombre del grupo para expansión posterior
+        
+        # 2. Mapeo de keywords simples
         mapping = {
             "fijo": "fijo", "fibra": "fijo", "telefono fijo": "fijo", "línea fija": "fijo", "linea fija": "fijo",
-            "movil": "m", "móvil": "m", "celular": "m", "linea movil": "m", "línea movil": "m", "smartphone": "m",
             "adicional": "adicional", "extra": "adicional", "plus": "adicional", "complementario": "adicional"
         }
         for keyword, producto in mapping.items():
             if keyword in text_lower:
                 return producto
+        
+        # 3. Búsqueda directa en productos únicos de los datos (para productos individuales)
         for prod in self.productos_unicos:
             if isinstance(prod, str) and len(prod) > 2:
                 prod_lower = prod.lower()
                 if prod_lower in text_lower or text_lower in prod_lower:
                     return prod
+        
+        # 4. Búsqueda por palabras
         for prod in self.productos_unicos:
             if isinstance(prod, str):
                 palabras_prod = prod.lower().split()
                 for palabra in palabras_prod:
                     if len(palabra) >= 3 and palabra in text_lower:
                         return prod
+        
         return None
+
+    def _expandir_producto(self, producto):
+        """🔥 Expande un grupo de productos a su lista de componentes reales"""
+        if producto is None:
+            return None
+        
+        # Si es un grupo conocido, retornar la lista de productos reales
+        if producto in self.product_groups:
+            return self.product_groups[producto]
+        
+        # Si es un producto individual, retornar como lista de un elemento
+        return [producto]
+    
+    def _filtrar_por_producto_expandido(self, df, producto, columna='BASE'):
+        """🔥 Filtra un DataFrame por producto, expandiendo grupos si es necesario"""
+        if producto is None:
+            return df
+        
+        productos_a_buscar = self._expandir_producto(producto)
+        
+        if len(productos_a_buscar) == 1:
+            # Producto individual: búsqueda simple
+            return df[df[columna].str.contains(productos_a_buscar[0], case=False, na=False)]
+        else:
+            # Grupo de productos: búsqueda múltiple con OR
+            patron = '|'.join([re.escape(p) for p in productos_a_buscar])
+            return df[df[columna].str.contains(patron, case=False, na=False, regex=True)]
 
     def _extract_mes(self, text):
         text_lower = text.lower()
@@ -256,8 +308,11 @@ class ClaraIA:
         df = self.sales_df.copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         df_f = df[(df['ALIADO'] == aliado)]
+        
+        # 🔥 FILTRAR POR PRODUCTO EXPANDIDO
         if producto:
-            df_f = df_f[df_f['BASE'].str.contains(producto, case=False, na=False)]
+            df_f = self._filtrar_por_producto_expandido(df_f, producto, columna='BASE')
+        
         ventas1 = df_f[df_f['Mes_Año'] == mes1]['ALTAS'].sum()
         ventas2 = df_f[df_f['Mes_Año'] == mes2]['ALTAS'].sum()
         variacion = float('inf') if ventas2 == 0 and ventas1 > 0 else ((ventas1 - ventas2) / ventas2) * 100 if ventas2 != 0 else 0
@@ -267,10 +322,13 @@ class ClaraIA:
         if mes is None: mes = self.get_current_month()
         df = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
+        
+        # 🔥 FILTRAR POR PRODUCTO EXPANDIDO
         if producto:
-            df = df[df['BASE'].str.contains(producto, case=False, na=False)]
+            df = self._filtrar_por_producto_expandido(df, producto, columna='BASE')
         if campana:
             df = df[df['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False)]
+        
         return df.groupby(['ALIADO', 'CAMPAÑA FINAL']).agg({'ALTAS': 'sum', 'INGRESOS': 'sum'}).reset_index().sort_values('ALTAS', ascending=False).to_dict(orient='records')
 
     def get_comportamiento_total_operacion(self):
@@ -284,7 +342,18 @@ class ClaraIA:
         df['ALIADO'] = df['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         df_f = df[df['ALIADO'] == aliado]
         if df_f.empty: return None
+        
+        # 🔥 Si se pide un grupo, encontrar el producto individual más vendido DENTRO del grupo
         top = df_f.groupby('BASE')['ALTAS'].sum().sort_values(ascending=False).head(1)
+        
+        # Si es un grupo, filtrar primero por los productos del grupo
+        if top.index[0] in self.product_groups:
+            productos_grupo = self.product_groups[top.index[0]]
+            patron = '|'.join([re.escape(p) for p in productos_grupo])
+            df_grupo = df_f[df_f['BASE'].str.contains(patron, case=False, na=False, regex=True)]
+            if not df_grupo.empty:
+                top = df_grupo.groupby('BASE')['ALTAS'].sum().sort_values(ascending=False).head(1)
+        
         return {'aliado': aliado, 'producto': top.index[0], 'altas': int(top.iloc[0]), 'mes': mes}
 
     def get_cumplimiento_detalle(self, aliado=None, producto=None, mes=None, campana=None):
@@ -292,8 +361,12 @@ class ClaraIA:
         ventas = self.sales_df[self.sales_df['Mes_Año'] == mes].copy()
         ventas['ALIADO'] = ventas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: ventas = ventas[ventas['ALIADO'] == aliado]
-        if producto: ventas = ventas[ventas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
+        
+        # 🔥 FILTRAR POR PRODUCTO EXPANDIDO
+        if producto:
+            ventas = self._filtrar_por_producto_expandido(ventas, producto, columna='BASE')
         if campana: ventas = ventas[ventas['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False)]
+        
         ventas_reales = ventas.groupby('BASE').agg({'ALTAS':'sum','INGRESOS':'sum'}).reset_index()
         ventas_reales.columns = ['BASE', 'ALTAS_REALES', 'INGRESOS_REALES']
 
@@ -304,8 +377,12 @@ class ClaraIA:
         metas = metas[metas['Mes_Año'] == mes]
         metas['ALIADO'] = metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: metas = metas[metas['ALIADO'] == aliado]
-        if producto: metas = metas[metas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
+        
+        # 🔥 FILTRAR METAS POR PRODUCTO EXPANDIDO
+        if producto:
+            metas = self._filtrar_por_producto_expandido(metas, producto, columna='BASE')
         if campana: metas = metas[metas['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False)]
+        
         metas['Ingresos'] = pd.to_numeric(metas['Ingresos'].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0'), errors='coerce').fillna(0)
         metas_reales = metas.groupby('BASE').agg({'Altas':'sum','Ingresos':'sum'}).reset_index()
         metas_reales.columns = ['BASE', 'META_ALTAS', 'META_INGRESOS']
@@ -336,7 +413,10 @@ class ClaraIA:
         df_ventas = self.sales_df.copy()
         df_ventas['ALIADO'] = df_ventas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: df_ventas = df_ventas[df_ventas['ALIADO'] == aliado]
-        if producto: df_ventas = df_ventas[df_ventas['BASE'].str.contains(producto, case=False, na=False)]
+        
+        # 🔥 FILTRAR POR PRODUCTO EXPANDIDO
+        if producto:
+            df_ventas = self._filtrar_por_producto_expandido(df_ventas, producto, columna='BASE')
         if campana: df_ventas = df_ventas[df_ventas['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False)]
         df_ventas = df_ventas[(df_ventas['MES'] >= fecha_inicio) & (df_ventas['MES'] <= fecha_fin)]
         ejecutado = df_ventas['ALTAS'].sum() if tipo == 'altas' else df_ventas['INGRESOS'].sum()
@@ -346,9 +426,13 @@ class ClaraIA:
         df_metas = df_metas.dropna(subset=['MES'])
         df_metas['ALIADO'] = df_metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         if aliado: df_metas = df_metas[df_metas['ALIADO'] == aliado]
-        if producto: df_metas = df_metas[df_metas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
+        
+        # 🔥 FILTRAR METAS POR PRODUCTO EXPANDIDO
+        if producto:
+            df_metas = self._filtrar_por_producto_expandido(df_metas, producto, columna='BASE')
         if campana: df_metas = df_metas[df_metas['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False)]
         df_metas = df_metas[(df_metas['MES'] >= fecha_inicio) & (df_metas['MES'] <= fecha_fin)]
+        
         col_meta = 'Altas' if tipo == 'altas' else 'Ingresos'
         df_metas[col_meta] = pd.to_numeric(df_metas[col_meta].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0'), errors='coerce').fillna(0)
         meta = df_metas[col_meta].sum()
@@ -362,7 +446,8 @@ class ClaraIA:
             'brecha': round(brecha, 2),
             'cumplimiento_pct': cumplimiento_pct,
             'fecha_inicio': fecha_inicio.strftime('%d/%m/%Y'),
-            'fecha_fin': fecha_fin.strftime('%d/%m/%Y')
+            'fecha_fin': fecha_fin.strftime('%d/%m/%Y'),
+            'productos_incluidos': self._expandir_producto(producto)  # 🔥 Para mostrar en la respuesta
         }
 
     def _calcular_brecha_detalle_campanas(self, aliado, producto=None, fecha_limite=None):
@@ -379,8 +464,10 @@ class ClaraIA:
         df_ventas = self.sales_df[self.sales_df['Mes_Año'] == fecha_inicio.strftime('%Y-%m')].copy()
         df_ventas['ALIADO'] = df_ventas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
         df_ventas = df_ventas[df_ventas['ALIADO'] == aliado]
+        
+        # 🔥 FILTRAR POR PRODUCTO EXPANDIDO
         if producto:
-            df_ventas = df_ventas[df_ventas['BASE'].str.contains(producto, case=False, na=False)]
+            df_ventas = self._filtrar_por_producto_expandido(df_ventas, producto, columna='BASE')
         
         campanas = df_ventas['CAMPAÑA FINAL'].unique()
         total_ejecutado = 0
@@ -396,8 +483,11 @@ class ClaraIA:
             df_metas = df_metas[(df_metas['MES'] >= fecha_inicio) & (df_metas['MES'] <= fecha_fin)]
             df_metas['ALIADO'] = df_metas['CAMPAÑA FINAL'].map(self.homologacion_aliados).fillna('DESCONOCIDO')
             df_metas = df_metas[(df_metas['ALIADO'] == aliado) & (df_metas['CAMPAÑA FINAL'].str.contains(campana, case=False, na=False))]
+            
+            # 🔥 FILTRAR METAS POR PRODUCTO EXPANDIDO
             if producto:
-                df_metas = df_metas[df_metas['BASE'].str.contains(producto, case=False, na=False, regex=False)]
+                df_metas = self._filtrar_por_producto_expandido(df_metas, producto, columna='BASE')
+            
             df_metas['Altas'] = pd.to_numeric(df_metas['Altas'].astype(str).str.replace(r'[$\s.]', '', regex=True).replace('-', '0'), errors='coerce').fillna(0)
             meta = df_metas['Altas'].sum()
             total_meta += meta
@@ -423,7 +513,7 @@ class ClaraIA:
         
         return resultados
 
-    # === 🔥 GENERACIÓN DE GRÁFICAS CON JSON CONFIG (SOLUCIÓN DEFINITIVA) ===
+    # === 🔥 GENERACIÓN DE GRÁFICAS CON JSON CONFIG ===
 
     def _generar_grafica_comportamiento(self, datos, titulo="Comportamiento"):
         labels = [d['Mes_Año'] for d in datos]
@@ -590,6 +680,7 @@ class ClaraIA:
                 <li><strong>🏆 Ranking:</strong> "Ranking de vendedores para [CUALQUIER PRODUCTO]"</li>
                 <li><strong>🔍 Detalle:</strong> "Brecha de [ALIADO] para [PRODUCTO]" (muestra campañas con sus brechas)</li>
                 <li><strong>📅 Fechas:</strong> "Variación entre agosto 2024 y septiembre 2024", "Cumplimiento mes pasado"</li>
+                <li><strong>📦 Productos Compuestos:</strong> "móvil", "pospago" = Migraciones + Portabilidad Pospago + Línea Nueva</li>
             </ul>
             <p style="margin:10px 0 0 0; font-size:13px; color:#888;">
                 💡 <strong>Tip:</strong> Funciona con CUALQUIER aliado, campaña, producto o fecha que exista en tus datos.
@@ -604,9 +695,17 @@ class ClaraIA:
             return f"<p>❌ No hay datos de ventas para '{producto}' en {aliado} en esos meses.</p>"
         color = "#28a745" if res['variacion_pct'] > 0 else "#b61a23"
         tendencia = "crecimiento 📈" if res['variacion_pct'] > 0 else "caída 📉" if res['variacion_pct'] < 0 else "estable ➡️"
+        
+        # 🔥 Mostrar qué productos se incluyeron si es un grupo
+        productos_info = ""
+        if producto and producto in self.product_groups:
+            productos_lista = ", ".join(self.product_groups[producto])
+            productos_info = f'<p style="font-size:12px; color:#666; margin:10px 0;"><em>📦 Incluye: {productos_lista}</em></p>'
+        
         return f'''
         <div style="background:#fff; padding:20px; border-left: 5px solid {color}; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius:8px;">
             <h3 style="color:#b61a23; margin-top:0;">📊 Variación {producto.upper() if producto else 'GENERAL'} - {aliado}</h3>
+            {productos_info}
             <div style="display:flex; justify-content:space-around; margin: 20px 0;">
                 <div style="text-align:center; padding:15px; background:#f5f5f5; border-radius:10px; flex:1; margin:0 5px;">
                     <div style="font-size:12px; color:#666; text-transform:uppercase;">{res['mes1']}</div>
@@ -741,6 +840,12 @@ class ClaraIA:
         detalle_campanas = self._calcular_brecha_detalle_campanas(aliado, producto=producto, fecha_limite=fecha_limite)
         grafica = self._generar_grafica_brechas({'campanas': detalle_campanas}, f"Brechas por Campaña - {aliado}")
         
+        # 🔥 Mostrar qué productos se incluyeron si es un grupo
+        productos_info = ""
+        if producto and producto in self.product_groups:
+            productos_lista = ", ".join(self.product_groups[producto])
+            productos_info = f'<p style="font-size:12px; color:#666; margin:10px 0;"><em>📦 Incluye: {productos_lista}</em></p>'
+        
         tabla_rows = ""
         for item in detalle_campanas:
             color_brecha = "#28a745" if item['brecha'] >= 0 else "#b61a23"
@@ -758,13 +863,14 @@ class ClaraIA:
         
         color_brecha_total = "#28a745" if brecha_total['brecha'] >= 0 else "#b61a23"
         estado_brecha = "✅ Superó la meta" if brecha_total['brecha'] >= 0 else f"❌ Faltan {abs(int(brecha_total['brecha'])):,} para la meta"
-        prod_text = f" para <strong>{producto}</strong>" if producto else ""
+        prod_text = f" para <strong>{producto.upper()}</strong>" if producto else ""
         camp_text = f" en {campana}" if campana else ""
         fecha_text_display = f" al {fecha_display}" if fecha_limite else ""
         
         return f'''
         <div style="background:#fff; padding:20px; border-radius:10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);">
             <h3 style="color:#b61a23; margin:0 0 10px 0;">📊 Brecha{prod_text}{camp_text} - {aliado}{fecha_text_display}</h3>
+            {productos_info}
             <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:15px; margin:20px 0;">
                 <div style="text-align:center; padding:15px; background:#f5f5f5; border-radius:10px;">
                     <div style="font-size:12px; color:#666; text-transform:uppercase;">Ejecutado</div>
